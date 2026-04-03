@@ -1,0 +1,90 @@
+---
+# ============================================================
+# K3S MASTER ROLE: Install K3s server (control plane) nodes
+# ============================================================
+
+# --- Deploy kube-vip manifest BEFORE K3s starts ---
+- name: Create K3s manifests directory
+  file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    recurse: yes
+
+- name: Deploy kube-vip manifest
+  template:
+    src: kube-vip.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
+
+- name: Deploy kube-vip manifest
+  template:
+    src: kube-vip-rbac.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/kube-vip-rbac.yaml
+
+# --- Pre-flight: detect whether K3s is already running ---
+- name: Check if K3s service is active
+  command: systemctl is-active k3s
+  register: k3s_service_status
+  changed_when: false
+  failed_when: false          # don't fail if k3s isn't installed yet
+
+# --- Install K3s on the FIRST master ---
+- name: Install K3s on first master (cluster init)
+  shell: |
+    curl -sfL https://get.k3s.io | sh -s - server \
+      --cluster-init \
+      --token {{ k3s_token }} \
+      --tls-san {{ k3s_vip }} \
+      --tls-san 10.10.30.21 \
+      --tls-san 10.10.30.22 \
+      --tls-san 10.10.30.23 \
+      --disable traefik \
+      --disable servicelb \
+      --write-kubeconfig-mode 644 \
+      --node-taint CriticalAddonsOnly=true:NoExecute \
+      --etcd-expose-metrics
+  when:
+    - inventory_hostname == 'k3s-master-1'
+    - k3s_service_status.rc != 0
+  # EXPLANATION OF FLAGS:
+  # --cluster-init: Initialize a new HA cluster with embedded etcd
+  # --token: Shared secret for node authentication
+  # --tls-san: Add extra names/IPs to the API server's TLS certificate.
+  #   Without this, kubectl would get TLS errors when connecting via the VIP
+  #   because the certificate wouldn't include that IP.
+  # --disable traefik: We'll install our own ingress controller later
+  #   (Traefik built into K3s is an older version with limited config)
+  # --disable servicelb: We use kube-vip instead of K3s's built-in ServiceLB
+  # --write-kubeconfig-mode 644: Makes kubeconfig readable (default is 600/root only)
+  # --node-taint: Prevents regular workloads from being scheduled on masters.
+  #   Only pods that tolerate "CriticalAddonsOnly" will run here (system pods).
+  # --etcd-expose-metrics: Lets monitoring tools scrape etcd metrics
+# --- Wait for first master to be ready ---
+- name: Wait for K3s to be ready on first master
+  command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: k3s_ready
+  retries: 30
+  delay: 10
+  until: "'Ready' in k3s_ready.stdout"
+  changed_when: false           # this is a read-only check
+  when: inventory_hostname == 'k3s-master-1'
+
+# --- Install K3s on remaining masters ---
+- name: Install K3s on additional masters (join cluster)
+  shell: |
+    curl -sfL https://get.k3s.io | sh -s - server \
+      --server https://10.10.30.21:6443 \
+      --token {{ k3s_token }} \
+      --tls-san {{ k3s_vip }} \
+      --tls-san 10.10.30.21 \
+      --tls-san 10.10.30.22 \
+      --tls-san 10.10.30.23 \
+      --disable traefik \
+      --disable servicelb \
+      --write-kubeconfig-mode 644 \
+      --node-taint CriticalAddonsOnly=true:NoExecute \
+      --etcd-expose-metrics
+  when:
+    - inventory_hostname != 'k3s-master-1'
+    - k3s_service_status.rc != 0

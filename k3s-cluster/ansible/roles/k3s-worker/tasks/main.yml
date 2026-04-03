@@ -1,0 +1,55 @@
+---
+# ============================================================
+# K3S WORKER ROLE: Install K3s agent (worker) nodes
+# ============================================================
+
+# Workers join via the VIP (which should be stable by now, as all 3 masters are up).
+# The agent binary is lighter — it only runs the kubelet and kube-proxy,
+# not the control plane components.
+
+# --- Pre-flight: detect whether K3s agent is already running ---
+- name: Check if K3s agent service is active
+  command: systemctl is-active k3s-agent
+  register: k3s_agent_status
+  changed_when: false
+  failed_when: false
+
+- name: Install K3s agent on workers
+  shell: |
+    curl -sfL https://get.k3s.io | K3S_URL=https://{{ k3s_vip }}:6443 K3S_TOKEN={{ k3s_token }} sh -s - agent \
+      --node-label "node-role.kubernetes.io/worker=true"
+  when: k3s_agent_status.rc != 0
+  # EXPLANATION:
+  # K3S_URL: Points to the VIP, so the worker connects to whichever master is currently the leader
+  # K3S_TOKEN: Authentication token to join the cluster
+  # --node-label: Adds a label to the node. Labels are key-value metadata you can use to
+  #   target specific nodes for scheduling (e.g., "run database only on workers")
+
+# --- Format and mount the Longhorn data disk ---
+# Remember the extra 100GB disk we added to workers? We need to format it
+# and mount it at /var/lib/longhorn (where Longhorn stores volume data).
+
+- name: Check if Longhorn disk exists
+  stat:
+    path: /dev/sdb
+  register: longhorn_disk
+
+- name: Create filesystem on Longhorn disk
+  filesystem:
+    fstype: ext4
+    dev: /dev/sdb
+  when: longhorn_disk.stat.exists
+
+- name: Create Longhorn mount point
+  file:
+    path: /var/lib/longhorn
+    state: directory
+
+- name: Mount Longhorn disk
+  mount:
+    path: /var/lib/longhorn
+    src: /dev/sdb
+    fstype: ext4
+    state: mounted
+    opts: defaults
+  when: longhorn_disk.stat.exists

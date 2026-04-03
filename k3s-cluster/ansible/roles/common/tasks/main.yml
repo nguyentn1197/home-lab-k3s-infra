@@ -1,0 +1,224 @@
+---
+# ============================================================
+# COMMON ROLE: Base OS preparation for all K3s nodes
+# ============================================================
+
+# --- Wait for cloud-init to finish ---
+# Cloud-init runs on first boot to apply our config (hostname, SSH keys, etc.)
+# If we start installing packages before it's done, things can conflict.
+#- name: Wait for cloud-init to finish
+#  command: cloud-init status --wait
+#  changed_when: false
+
+# --- System Updates ---
+# Always start with a fully patched system.
+
+- name: ping gateway to try to get on internet
+  command: ping -c 10 10.10.0.1
+
+- name: Update apt cache and upgrade all packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+    cache_valid_time: 3600
+
+# --- Install required packages ---
+# These are dependencies that K3s and Longhorn need:
+# - curl, wget: downloading things
+# - apt-transport-https: needed for HTTPS apt repos
+# - ca-certificates: SSL certificate verification
+# - open-iscsi: Longhorn needs iSCSI to attach block storage
+# - nfs-common: Longhorn uses NFS for backup transport
+# - jq: JSON parsing (useful for scripts)
+# - qemu-guest-agent: lets Proxmox interact with the VM (shutdown, IP reporting)
+# - util-linux: provides mount, fdisk, etc.
+- name: Install required packages
+  apt:
+    name:
+      - curl
+      - wget
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+      - open-iscsi
+      - nfs-common
+      - cryptsetup
+      - jq
+      - qemu-guest-agent
+      - util-linux
+      - bash-completion
+    state: present
+
+# --- Enable qemu-guest-agent ---
+# This service lets Proxmox gracefully shutdown/reboot VMs and see their IPs.
+- name: Enable and start qemu-guest-agent
+  systemd:
+    name: qemu-guest-agent
+    state: started
+    enabled: yes
+
+# --- Enable iscsid ---
+# Longhorn requires the iSCSI initiator to be running.
+# iSCSI is a protocol for accessing block storage over the network.
+# Even though Longhorn runs locally, it uses iSCSI internally to present
+# volumes to pods.
+- name: Enable and start iscsid
+  systemd:
+    name: iscsid
+    state: started
+    enabled: yes
+
+# --- Load required kernel modules ---
+# Kubernetes networking and storage need these kernel modules:
+# - overlay: Used by containerd (the container runtime) for its filesystem layers.
+#   When you pull a Docker/container image, each layer is stacked using overlay.
+# - br_netfilter: Enables iptables to see bridged traffic. Without this,
+#   Kubernetes networking (Services, NetworkPolicies) won't work because
+#   Linux won't apply firewall rules to traffic crossing network bridges.
+# - iscsi_tcp: iSCSI over TCP for Longhorn.
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+    - iscsi_tcp
+
+# Make kernel modules persistent across reboots
+- name: Persist kernel modules
+  copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: |
+      overlay
+      br_netfilter
+      iscsi_tcp
+
+# --- Kernel parameters (sysctl) ---
+# These settings are REQUIRED for Kubernetes networking:
+# - net.bridge.bridge-nf-call-iptables: Lets iptables process bridged IPv4 traffic.
+#   Kubernetes Services use iptables rules to load-balance traffic. Without this,
+#   pod-to-service communication breaks.
+# - net.bridge.bridge-nf-call-ip6tables: Same for IPv6.
+# - net.ipv4.ip_forward: Allows the machine to forward packets between network
+#   interfaces. Without this, pods on different nodes can't communicate because
+#   the host won't forward their traffic.
+- name: Set sysctl parameters for Kubernetes
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: yes
+  loop:
+    - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+    - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { key: "net.ipv4.ip_forward", value: "1" }
+
+# --- Disable swap ---
+# Kubernetes (specifically the kubelet) does NOT work well with swap enabled.
+# When a container is given a memory limit (e.g., 512MB), the kubelet enforces
+# this by killing the container if it exceeds the limit (OOMKilled). If swap is
+# on, the container might use swap instead of being killed, leading to
+# unpredictable performance and resource accounting.
+# K3s will refuse to start properly with swap on.
+- name: Disable swap
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+
+- name: Remove swap from fstab (persist across reboots)
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+# --- Set hostname ---
+# Each node needs a unique hostname for Kubernetes to identify it.
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+# --- Update /etc/hosts ---
+# Ensures all nodes can resolve each other by name, not just IP.
+# This is a safety net — DNS should also work, but /etc/hosts is guaranteed.
+- name: Add all cluster nodes to /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '.*{{ item }}$'
+    line: "{{ hostvars[item].ansible_host }} {{ item }}"
+    state: present
+  with_items: "{{ groups['k3s_cluster'] }}"
+  when: hostvars[item].ansible_host is defined
+
+# --- Configure firewall (UFW) ---
+# Open only what's needed. K3s nodes need to talk to each other on specific ports.
+- name: Install UFW
+  apt:
+    name: ufw
+    state: present
+
+# K3s API server (6443): kubectl and nodes connect here
+- name: Allow K3s API server
+  ufw:
+    rule: allow
+    port: "6443"
+    proto: tcp
+
+# Flannel VXLAN (8472): Pod-to-pod networking across nodes uses VXLAN tunnels
+- name: Allow Flannel VXLAN
+  ufw:
+    rule: allow
+    port: "8472"
+    proto: udp
+
+# Kubelet metrics (10250): The API server scrapes metrics from kubelets
+- name: Allow Kubelet metrics
+  ufw:
+    rule: allow
+    port: "10250"
+    proto: tcp
+
+# etcd (2379-2380): Master-to-master communication for the distributed database
+- name: Allow etcd peer communication
+  ufw:
+    rule: allow
+    port: "2379:2380"
+    proto: tcp
+
+# NodePort range (30000-32767): External access to services
+- name: Allow NodePort range
+  ufw:
+    rule: allow
+    port: "30000:32767"
+    proto: tcp
+
+# Longhorn (9500, 9501-9504): Storage engine communication
+- name: Allow Longhorn communication
+  ufw:
+    rule: allow
+    port: "9500:9504"
+    proto: tcp
+
+# Allow all traffic within the cluster subnet
+- name: Allow all traffic from cluster subnet
+  ufw:
+    rule: allow
+    from_ip: "10.10.0.0/16"
+
+# SSH
+- name: Allow SSH
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+#- name: Enable UFW
+#  ufw:
+#    state: enabled
+#    default: deny
+#    direction: incoming
+
+# --- Reboot to apply kernel changes ---
+- name: Reboot nodes
+  reboot:
+    reboot_timeout: 300
+    msg: "Rebooting for kernel module and sysctl changes"
