@@ -1,0 +1,48 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ingress-nginx
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://kubernetes.github.io/ingress-nginx
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+spec:
+  interval: 1h
+  dependsOn:
+    - name: metallb
+      namespace: metallb-system
+  chart:
+    spec:
+      chart: ingress-nginx
+      version: "4.x"
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+        namespace: flux-system
+      interval: 12h
+  values:
+    controller:
+      service:
+        type: LoadBalancer
+        # Optional: request a specific IP from MetalLB
+        annotations:
+          metallb.universe.tf/loadBalancerIPs: 10.10.40.1
+      # No TLS — terminated upstream by another machine
+      extraArgs:
+        default-ssl-certificate: ""
+      config:
+        # Force HTTP since TLS is handled externally
+        use-forwarded-headers: "true"
+        compute-full-forwarded-for: "true"
