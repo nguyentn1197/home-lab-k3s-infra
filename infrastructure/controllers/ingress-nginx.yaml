@@ -40,9 +40,7 @@ spec:
         annotations:
           metallb.universe.tf/loadBalancerIPs: 10.10.40.1
       # No TLS — terminated upstream by another machine
-      extraArgs:
-        default-ssl-certificate: ""
       config:
-        # Force HTTP since TLS is handled externally
         use-forwarded-headers: "true"
         compute-full-forwarded-for: "true"
+        ssl-redirect: "false"
