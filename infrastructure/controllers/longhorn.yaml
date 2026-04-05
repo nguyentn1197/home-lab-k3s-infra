@@ -31,9 +31,27 @@ spec:
       interval: 12h
   values:
     defaultSettings:
-      defaultReplicaCount: 3
+      # Replicas & placement
+      defaultReplicaCount: 2
+      defaultDataLocality: best-effort   # schedule a local replica on the same node as the pod
+      replicaAutoBalance: best-effort    # rebalance replicas when nodes are added/removed
+      # Reliability
+      autoSalvage: true                  # auto-recover faulted volumes
+      autoDeletePodWhenVolumeDetachedUnexpectedly: true
+      # Backups
+      backupCompressionMethod: lz4       # fast compression for backup data
+      # Snapshots
+      snapshotDataIntegrity: fast-check  # periodic hash checks on snapshot data
+      recurringSuccessfulJobsHistoryLimit: 3
+      recurringFailedJobsHistoryLimit: 1
     persistence:
-      defaultClassReplicaCount: 3
+      defaultClass: true
+      defaultClassReplicaCount: 2
+      defaultDataLocality: best-effort
+      reclaimPolicy: Retain              # keep volume data if PVC is deleted accidentally
+      recurringJobSelector:
+        enable: true
+        jobList: '[{"name":"default","isGroup":true}]'
     ingress:
       enabled: true
       ingressClassName: nginx
