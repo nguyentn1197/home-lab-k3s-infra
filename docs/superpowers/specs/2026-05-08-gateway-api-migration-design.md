@@ -55,8 +55,8 @@ One shared `Gateway` resource lives in `infrastructure/configs/gateway.yaml`. Al
 ### 1. `infrastructure/controllers/envoy-gateway.yaml` (new)
 
 - **Namespace:** `envoy-gateway-system`
-- **HelmRepository:** `oci://docker.io/envoyproxy/gateway-helm` (OCI registry, no URL-based repo needed)
-- **HelmRelease:** chart `gateway-helm`, version `"1.x"`, namespace `envoy-gateway-system`
+- **OCIRepository:** `oci://docker.io/envoyproxy/gateway-helm` with `layerSelector.mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip`, `operation: copy`, and `ref.tag: v1.7.2`
+- **HelmRelease:** `releaseName: eg`, namespace `envoy-gateway-system`, `chartRef` to the OCIRepository
 - **dependsOn:** `metallb` in `metallb-system` (same constraint ingress-nginx had)
 - **values:** minimal — Envoy Gateway works out of the box; no special values needed
 
@@ -214,6 +214,6 @@ Update the "How to Add a New Application" sections to replace the `Ingress` temp
 
 - **Longhorn frontend service name:** Longhorn's Helm chart exposes the UI via a Service named `longhorn-frontend` in `longhorn-system`. This is verified from the Longhorn chart — confirm it hasn't changed if using a non-standard version.
 - **Gateway API CRD version compatibility:** Envoy Gateway 1.x requires Gateway API CRDs v1.x. The `gateway-api` Helm chart version `"1.x"` aligns with this.
-- **OCI Helm source:** Envoy Gateway uses an OCI registry (`oci://`) rather than a traditional Helm HTTP repo. Flux's `HelmRepository` supports OCI with `type: oci`.
+- **OCI source pattern:** Envoy Gateway uses Flux's `OCIRepository` source with `layerSelector` and `ref.tag`, then a `HelmRelease` that references it via `chartRef`.
 - **Downtime:** Since this is a clean cut-over (not a parallel run), there will be a brief window between removing ingress-nginx and Envoy Gateway becoming ready where HTTP routing is unavailable. Acceptable for a home lab.
 - **`infra-configs` ordering:** Kustomize does not guarantee CRD readiness before dependent resources — Flux's `wait: true` on `infra-controllers` ensures the Envoy Gateway controller is ready, but within `infra-configs` the CRD Helm chart must complete before `GatewayClass`/`Gateway` are applied. Setting `wait: true` on the `infra-configs` Kustomization (or using `dependsOn` within the Kustomization) handles this.

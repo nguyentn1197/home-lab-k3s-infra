@@ -14,7 +14,7 @@
 
 | Action | File | What changes |
 |--------|------|-------------|
-| Create | `infrastructure/controllers/envoy-gateway.yaml` | New: Namespace + HelmRepository (OCI) + HelmRelease for Envoy Gateway |
+| Create | `infrastructure/controllers/envoy-gateway.yaml` | New: Namespace + OCIRepository + HelmRelease for Envoy Gateway |
 | Delete | `infrastructure/controllers/ingress-nginx.yaml` | Removed entirely |
 | Modify | `infrastructure/controllers/kustomization.yaml` | Remove ingress-nginx, add envoy-gateway |
 | Modify | `infrastructure/controllers/longhorn.yaml` | Set `ingress.enabled: false`, remove ingressClassName/host |
@@ -95,14 +95,18 @@ metadata:
   name: envoy-gateway-system
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
   name: envoy-gateway
   namespace: flux-system
 spec:
   interval: 24h
-  type: oci
   url: oci://docker.io/envoyproxy/gateway-helm
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.7.2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -111,18 +115,13 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   interval: 1h
+  releaseName: eg
   dependsOn:
     - name: metallb
       namespace: metallb-system
-  chart:
-    spec:
-      chart: gateway-helm
-      version: "1.x"
-      sourceRef:
-        kind: HelmRepository
-        name: envoy-gateway
-        namespace: flux-system
-      interval: 12h
+  chartRef:
+    kind: OCIRepository
+    name: envoy-gateway
 ```
 
 - [ ] **Step 2: Verify the file looks correct**
@@ -131,7 +130,7 @@ spec:
 cat infrastructure/controllers/envoy-gateway.yaml
 ```
 
-Expected: 3 YAML documents separated by `---` (Namespace, HelmRepository, HelmRelease). HelmRepository has `type: oci` and URL starting with `oci://`.
+Expected: 3 YAML documents separated by `---` (Namespace, OCIRepository, HelmRelease). The OCIRepository uses `layerSelector` and `ref.tag`, and the HelmRelease uses `chartRef` plus `releaseName: eg`.
 
 - [ ] **Step 3: Commit**
 
@@ -283,7 +282,7 @@ Note: No `dependsOn` needed here — `infra-configs` already `dependsOn: infra-c
 cat infrastructure/configs/gateway-api-crds.yaml
 ```
 
-Expected: 2 YAML documents — HelmRepository (standard HTTP URL, no `type: oci`) and HelmRelease targeting namespace `envoy-gateway-system`.
+Expected: 2 YAML documents — HelmRepository (standard HTTP URL) and HelmRelease targeting namespace `envoy-gateway-system`.
 
 - [ ] **Step 3: Commit**
 
@@ -750,7 +749,7 @@ git commit -m "docs: update AGENTS.md for Gateway API migration"
 
 | Spec requirement | Task |
 |-----------------|------|
-| Create `envoy-gateway.yaml` with OCI HelmRepository + HelmRelease | Task 2 |
+| Create `envoy-gateway.yaml` with OCIRepository + HelmRelease | Task 2 |
 | Delete `ingress-nginx.yaml` | Task 3 |
 | Update `controllers/kustomization.yaml` | Task 3 |
 | Disable Longhorn built-in ingress | Task 4 |
@@ -768,6 +767,6 @@ All spec requirements covered.
 ### Risks to watch during execution
 
 1. **Longhorn service name:** The HTTPRoute in Task 7 targets `longhorn-frontend`. Verify this service exists: `kubectl get svc -n longhorn-system`. If the name differs, update `longhorn-httproute.yaml` accordingly.
-2. **OCI HelmRepository:** Flux must have OCI support enabled (it does by default in Flux v2.x). The `type: oci` field on the HelmRepository is required.
+2. **OCI source pattern:** Envoy Gateway uses Flux's `OCIRepository` source with `layerSelector` and `ref.tag`, then a `HelmRelease` that references it via `chartRef`.
 3. **Downtime window:** After Task 3 is committed and Flux reconciles, ingress-nginx is removed. HTTP routing is unavailable until Envoy Gateway is ready (Tasks 5–8). For a home lab this is acceptable, but plan for ~5–10 minutes of downtime.
 4. **Gateway API CRD version:** The `gateway-api` Helm chart version `"1.x"` must align with Envoy Gateway 1.x requirements. Both are pinned to `"1.x"` semver ranges, so they should stay compatible automatically.
