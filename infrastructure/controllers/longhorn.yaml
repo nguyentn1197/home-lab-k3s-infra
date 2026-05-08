@@ -39,6 +39,8 @@ spec:
       autoSalvage: true                  # auto-recover faulted volumes
       autoDeletePodWhenVolumeDetachedUnexpectedly: true
       # Backups
+      backupTarget: "cifs://10.10.0.210/nas_share/LONGHORN_BACKUP"   # e.g. cifs://192.168.1.10/longhorn-backup
+      backupTargetCredentialSecret: longhorn-backup-cifs
       backupCompressionMethod: lz4       # fast compression for backup data
       # Snapshots
       snapshotDataIntegrity: fast-check  # periodic hash checks on snapshot data

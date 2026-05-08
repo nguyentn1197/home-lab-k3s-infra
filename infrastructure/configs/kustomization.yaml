@@ -6,3 +6,4 @@ resources:
   - metallb-config.yaml
   - local-path-sc-patch.yaml
   - infisical-test.yaml
+  - longhorn-backup.yaml

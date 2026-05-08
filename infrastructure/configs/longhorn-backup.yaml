@@ -1,0 +1,25 @@
+---
+# Syncs CIFS backup credentials from Infisical into longhorn-system.
+# Required Infisical keys at path /longhorn/backup-creds: CIFS_USERNAME, CIFS_PASSWORD
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: longhorn-backup-cifs
+  namespace: longhorn-system
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/longhorn/backup-cred-cifs"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: longhorn-backup-cifs
+      secretNamespace: longhorn-system
+      creationPolicy: Owner
