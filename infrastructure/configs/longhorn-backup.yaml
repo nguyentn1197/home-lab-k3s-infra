@@ -27,5 +27,5 @@ spec:
       template:
         includeAllSecrets: false
         data:
-          CIFS_USERNAME: "{{ .LONGHORN_BACKUP_CIFS_USERNAME }}"
-          CIFS_PASSWORD: "{{ .LONGHORN_BACKUP_CIFS_PASSWORD }}"
+          CIFS_USERNAME: "{{ .LONGHORN_BACKUP_CIFS_USERNAME.Value }}"
+          CIFS_PASSWORD: "{{ .LONGHORN_BACKUP_CIFS_PASSWORD.Value }}"
