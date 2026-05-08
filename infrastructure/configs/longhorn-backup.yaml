@@ -1,6 +1,7 @@
 ---
 # Syncs CIFS backup credentials from Infisical into longhorn-system.
-# Required Infisical keys at path /longhorn/backup-creds: CIFS_USERNAME, CIFS_PASSWORD
+# Infisical keys at path /longhorn/backup-cred-cifs: LONGHORN_BACKUP_CIFS_USERNAME, LONGHORN_BACKUP_CIFS_PASSWORD
+# Remapped to: CIFS_USERNAME, CIFS_PASSWORD (required by Longhorn)
 apiVersion: secrets.infisical.com/v1alpha1
 kind: InfisicalSecret
 metadata:
@@ -23,3 +24,8 @@ spec:
     - secretName: longhorn-backup-cifs
       secretNamespace: longhorn-system
       creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          CIFS_USERNAME: "{{ .LONGHORN_BACKUP_CIFS_USERNAME }}"
+          CIFS_PASSWORD: "{{ .LONGHORN_BACKUP_CIFS_PASSWORD }}"
