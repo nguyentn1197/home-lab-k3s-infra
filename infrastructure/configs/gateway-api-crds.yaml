@@ -1,12 +1,17 @@
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: gateway-api
+  name: gateway-api-crds
   namespace: flux-system
 spec:
   interval: 24h
-  url: https://gateway-api.sigs.k8s.io/helm-charts
+  url: oci://ghcr.io/kubernetes-sigs/gateway-api
+  ref:
+    tag: v1.5.1
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -15,12 +20,6 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   interval: 1h
-  chart:
-    spec:
-      chart: gateway-api
-      version: "1.x"
-      sourceRef:
-        kind: HelmRepository
-        name: gateway-api
-        namespace: flux-system
-      interval: 12h
+  chartRef:
+    kind: OCIRepository
+    name: gateway-api-crds
