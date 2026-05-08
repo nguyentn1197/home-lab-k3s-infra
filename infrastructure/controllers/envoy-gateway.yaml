@@ -5,14 +5,18 @@ metadata:
   name: envoy-gateway-system
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: envoy-gateway
-  namespace: flux-system
+  name: gateway-helm
+  namespace: envoy-gateway-system
 spec:
   interval: 24h
-  type: oci
-  url: oci://docker.io/envoyproxy
+  url: oci://docker.io/envoyproxy/gateway-helm
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.7.2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -21,15 +25,10 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   interval: 1h
+  releaseName: eg
   dependsOn:
     - name: metallb
       namespace: metallb-system
-  chart:
-    spec:
-      chart: gateway-helm
-      version: "1.x"
-      sourceRef:
-        kind: HelmRepository
-        name: envoy-gateway
-        namespace: flux-system
-      interval: 12h
+  chartRef:
+    kind: OCIRepository
+    name: gateway-helm
