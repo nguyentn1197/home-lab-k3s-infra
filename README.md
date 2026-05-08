@@ -1,0 +1,126 @@
+# home-lab-k3s-infra
+
+GitOps repository for my home-lab Kubernetes cluster — a 3-master, 3-worker K3s HA cluster running on Proxmox VMs, managed by Flux CD.
+
+---
+
+## What's Running
+
+| Layer | Tool | Purpose |
+|-------|------|---------|
+| Cluster provisioning | Ansible | Installs K3s on bare Ubuntu VMs |
+| High-availability VIP | kube-vip | Provides a stable API server IP (`10.10.30.20`) |
+| GitOps | Flux CD v2 | Reconciles this repo → cluster state |
+| Load balancer | MetalLB | Assigns IPs from `10.10.40.0/24` to LoadBalancer services |
+| Ingress | ingress-nginx | HTTP routing at `10.10.40.1` |
+| Storage | Longhorn | Replicated block storage (default StorageClass) |
+| Apps | hello-world | Example nginx app at `hello.kube.local.tnndev.com` |
+
+---
+
+## Cluster Topology
+
+```
+Proxmox host
+├── k3s-master-1  10.10.30.21  (control plane + etcd)
+├── k3s-master-2  10.10.30.22  (control plane + etcd)
+├── k3s-master-3  10.10.30.23  (control plane + etcd)
+│         └── VIP: 10.10.30.20  (kube-vip)
+├── k3s-worker-1  10.10.30.31  (workloads + Longhorn disk)
+├── k3s-worker-2  10.10.30.32  (workloads + Longhorn disk)
+└── k3s-worker-3  10.10.30.33  (workloads + Longhorn disk)
+```
+
+Masters have a `CriticalAddonsOnly=true:NoExecute` taint — regular workloads only run on workers.
+
+---
+
+## Repository Layout
+
+```
+home-lab-k3s-infra/
+├── clusters/homelab/         # Flux entrypoint — declares what gets deployed
+├── infrastructure/
+│   ├── controllers/          # Helm releases: MetalLB, ingress-nginx, Longhorn
+│   └── configs/              # CRD instances: MetalLB IP pool, StorageClass patch
+├── apps/
+│   ├── base/                 # App manifests (environment-agnostic)
+│   └── homelab/              # Homelab overlays
+└── k3s-cluster/ansible/      # Ansible playbooks + roles for node provisioning
+```
+
+See `AGENTS.md` for a detailed breakdown and `docs/contributing.md` for how to add apps or infrastructure.
+
+---
+
+## Flux Reconciliation Order
+
+```
+infra-controllers → infra-configs → apps
+```
+
+Flux enforces this dependency chain. Each layer waits for the previous one to be healthy before deploying.
+
+---
+
+## Quick Start
+
+### 1. Provision nodes with Ansible
+
+```bash
+cd k3s-cluster/ansible
+
+# Phase 1: Prepare all nodes (OS, packages, kernel settings)
+ansible-playbook playbook.yml -i inventory/hosts.ini --tags common
+
+# Phase 2: Install masters (sequential — order matters for etcd init)
+ansible-playbook playbook.yml -i inventory/hosts.ini --tags k3s-master
+
+# Phase 3: Install workers (parallel)
+ansible-playbook playbook.yml -i inventory/hosts.ini --tags k3s-worker
+```
+
+> **Note:** Update `inventory/hosts.ini` with your node IPs and generate a fresh `k3s_token` before running:
+> ```bash
+> openssl rand -hex 32
+> ```
+
+### 2. Bootstrap Flux
+
+```bash
+export GITHUB_TOKEN=<your-token>
+flux bootstrap github \
+  --owner=<your-github-username> \
+  --repository=home-lab-k3s-infra \
+  --branch=main \
+  --path=clusters/homelab \
+  --personal
+```
+
+### 3. Verify
+
+```bash
+# Watch Flux reconcile
+flux get kustomizations --watch
+
+# Check all resources
+kubectl get all -A
+```
+
+---
+
+## Adding Apps
+
+See `docs/contributing.md` — the short version:
+
+1. Add a YAML file to `apps/base/<app-name>.yaml`
+2. Register it in `apps/base/kustomization.yaml`
+3. Commit and push — Flux deploys within 10 minutes
+
+---
+
+## Networking Notes
+
+- TLS is terminated **upstream** (by a reverse proxy or router) — ingress-nginx runs plain HTTP inside the cluster.
+- All services use the domain pattern `<app>.kube.local.tnndev.com`.
+- MetalLB IP pool: `10.10.40.0 – 10.10.40.250`. Make sure this range doesn't overlap with your router's DHCP range.
