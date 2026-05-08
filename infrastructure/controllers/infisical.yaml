@@ -11,7 +11,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 24h
-  url: https://infisical.github.io/helm-charts
+  url: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
