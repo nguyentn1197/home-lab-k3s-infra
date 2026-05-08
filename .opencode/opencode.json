@@ -23,6 +23,7 @@
       { "permission": "ask",   "pattern": "git rebase *" },
       { "permission": "ask",   "pattern": "git cherry-pick *" },
       { "permission": "ask",   "pattern": "git add *" },
+      { "permission": "ask",   "pattern": "git rm *" },
       { "permission": "ask",   "pattern": "git commit *" },
       { "permission": "ask",   "pattern": "git tag *" },
       { "permission": "deny",  "pattern": "git push *" },
