@@ -35,7 +35,7 @@ home-lab-k3s-infra/
 ├── infrastructure/
 │   ├── controllers/          # Helm releases for cluster-wide controllers
 │   │   ├── metallb.yaml      # Layer-2 load balancer (IP pool: 10.10.40.0-10.10.40.250)
-│   │   ├── ingress-nginx.yaml # Ingress controller (LoadBalancer IP: 10.10.40.1)
+│   │   ├── envoy-gateway.yaml # Envoy Gateway controller (LoadBalancer IP: 10.10.40.1)
 │   │   ├── longhorn.yaml     # Distributed block storage
 │   │   └── kustomization.yaml
 │   └── configs/              # CRD instances and patches that depend on controllers
@@ -65,9 +65,10 @@ home-lab-k3s-infra/
 ### Dependency Order (Flux)
 
 ```
-infra-controllers  →  infra-configs  →  apps
-(metallb, nginx,        (metallb IP        (hello-world,
- longhorn)               pool, SC patch)    future apps)
+infra-controllers  →  infra-configs               →  apps
+(metallb,              (gateway-api-crds,              (hello-world HTTPRoute,
+ longhorn,              gateway, longhorn-httproute,    future app HTTPRoutes)
+ envoy-gateway)         metallb-config, SC patch)
 ```
 
 Each layer `dependsOn` the previous one. Flux will not deploy a layer until its dependency is healthy.
@@ -83,7 +84,7 @@ Each layer `dependsOn` the previous one. Flux will not deploy a layer until its 
 | Master nodes | `10.10.30.21`, `.22`, `.23` |
 | Worker nodes | `10.10.30.31`, `.32`, `.33` |
 | GitOps tool | Flux CD v2 |
-| Ingress controller | ingress-nginx |
+| Ingress controller | Envoy Gateway (Gateway API) |
 | Ingress IP | `10.10.40.1` |
 | MetalLB IP pool | `10.10.40.0 – 10.10.40.250` |
 | Storage | Longhorn (default StorageClass, 2 replicas) |
@@ -95,16 +96,16 @@ Each layer `dependsOn` the previous one. Flux will not deploy a layer until its 
 ## Naming Conventions
 
 ### Namespaces
-- Infrastructure controllers use their own namespaces: `metallb-system`, `ingress-nginx`, `longhorn-system`.
+- Infrastructure controllers use their own namespaces: `metallb-system`, `envoy-gateway-system`, `longhorn-system`.
 - Applications get their own namespace named after the app: `hello-world`, `grafana`, etc.
 
-### Ingress hostnames
+### HTTPRoute hostnames
 Pattern: `<app-name>.kube.local.tnndev.com`
 Examples: `hello.kube.local.tnndev.com`, `longhorn.kube.local.tnndev.com`
 
 ### File names
 - One logical resource group per file (e.g., one HelmRelease + its HelmRepository + Namespace in one file).
-- Files named after the tool/app: `metallb.yaml`, `ingress-nginx.yaml`.
+- Files named after the tool/app: `metallb.yaml`, `envoy-gateway.yaml`.
 
 ### Helm chart versions
 - Use semver range constraints, not pinned versions: `"0.14.x"`, `"4.x"`, `"1.7.x"`.
@@ -116,7 +117,7 @@ Examples: `hello.kube.local.tnndev.com`, `longhorn.kube.local.tnndev.com`
 
 See `docs/contributing.md` for the full workflow. Short version:
 
-1. Create `apps/base/<app-name>.yaml` with Namespace + Deployment/StatefulSet + Service + Ingress.
+1. Create `apps/base/<app-name>.yaml` with Namespace + Deployment/StatefulSet + Service + HTTPRoute (Gateway API) that references the shared `homelab` Gateway in `envoy-gateway-system`.
 2. Add the file to `apps/base/kustomization.yaml` resources list.
 3. If the app needs homelab-specific overrides, add a patch in `apps/homelab/`.
 4. Commit and push — Flux reconciles within 10 minutes (or force-reconcile with `flux reconcile`).
