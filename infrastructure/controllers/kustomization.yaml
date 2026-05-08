@@ -4,3 +4,4 @@ resources:
   - metallb.yaml
   - longhorn.yaml
   - envoy-gateway.yaml
+  - infisical.yaml
