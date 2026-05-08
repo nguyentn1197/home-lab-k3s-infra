@@ -29,15 +29,6 @@ spec:
   dependsOn:
     - name: metallb
       namespace: metallb-system
-  values:
-    config:
-      envoyGateway:
-        provider:
-          type: Kubernetes
-          kubernetes:
-            envoyService:
-              annotations:
-                metallb.universe.tf/loadBalancerIPs: "10.10.40.2"
   chartRef:
     kind: OCIRepository
     name: gateway-helm
