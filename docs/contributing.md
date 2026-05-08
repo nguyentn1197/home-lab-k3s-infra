@@ -57,27 +57,26 @@ spec:
     - port: 80
       targetPort: <port>
 ---
-# Ingress
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# HTTPRoute (Gateway API)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
   name: <app-name>
   namespace: <app-name>
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  ingressClassName: nginx
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - "<app-name>.kube.local.tnndev.com"
   rules:
-    - host: <app-name>.kube.local.tnndev.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: <app-name>
-                port:
-                  number: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: <app-name>
+          port: 80
 ```
 
 ### Step 2: Register the app in the base kustomization
@@ -114,7 +113,7 @@ flux reconcile kustomization apps --with-source
 
 ```bash
 kubectl get all -n <app-name>
-kubectl get ingress -n <app-name>
+kubectl get httproute -n <app-name>
 ```
 
 ---
@@ -215,9 +214,9 @@ Edit `infrastructure/controllers/kustomization.yaml`:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ingress-nginx.yaml
   - metallb.yaml
   - longhorn.yaml
+  - envoy-gateway.yaml
   - <tool-name>.yaml    # ← add this line
 ```
 
