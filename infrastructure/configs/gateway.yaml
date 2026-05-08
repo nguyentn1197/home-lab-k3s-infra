@@ -11,8 +11,6 @@ kind: Gateway
 metadata:
   name: homelab
   namespace: envoy-gateway-system
-  annotations:
-    metallb.universe.tf/loadBalancerIPs: 10.10.40.2
 spec:
   gatewayClassName: envoy
   listeners:
