@@ -5,3 +5,4 @@ resources:
   - longhorn-httproute.yaml
   - metallb-config.yaml
   - local-path-sc-patch.yaml
+  - infisical-test.yaml

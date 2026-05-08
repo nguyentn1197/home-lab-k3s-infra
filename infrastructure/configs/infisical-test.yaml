@@ -1,0 +1,26 @@
+---
+# Smoke-test: syncs all secrets from the dev environment root path into
+# a Kubernetes Secret named "infisical-test-synced" in infisical-operator-system.
+# Remove this file once you've confirmed the operator is working.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: infisical-test
+  namespace: infisical-operator-system
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s   # e.g. "homelab-secrets"
+        envSlug: dev
+        secretsPath: "/"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: infisical-test-synced
+      secretNamespace: infisical-operator-system
+      creationPolicy: Owner
