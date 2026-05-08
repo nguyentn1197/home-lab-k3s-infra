@@ -64,14 +64,7 @@ One shared `Gateway` resource lives in `infrastructure/configs/gateway.yaml`. Al
 
 Deleted entirely. Removed from `infrastructure/controllers/kustomization.yaml`.
 
-### 3. `infrastructure/configs/gateway-api-crds.yaml` (new)
-
-Installs the upstream Gateway API CRD bundle as a pinned OCI source:
-- **OCIRepository:** `oci://ghcr.io/kubernetes-sigs/gateway-api` with `ref.tag: v1.5.1`
-- **HelmRelease:** `chartRef` to the OCIRepository, namespace `envoy-gateway-system`
-- No CRD instances here — just the CRD bundle itself
-
-### 4. `infrastructure/configs/gateway.yaml` (new)
+### 3. `infrastructure/configs/gateway.yaml` (new)
 
 Two resources:
 
@@ -105,7 +98,7 @@ spec:
 
 The `hostname` wildcard on the listener restricts which routes can attach — only routes matching `*.kube.local.tnndev.com` are accepted.
 
-### 5. `infrastructure/configs/longhorn-httproute.yaml` (new)
+### 4. `infrastructure/configs/longhorn-httproute.yaml` (new)
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -129,7 +122,7 @@ spec:
           port: 80
 ```
 
-### 6. `infrastructure/controllers/longhorn.yaml` (modified)
+### 5. `infrastructure/controllers/longhorn.yaml` (modified)
 
 In the HelmRelease `values`, change:
 ```yaml
@@ -144,7 +137,7 @@ ingress:
   enabled: false
 ```
 
-### 7. `apps/base/hello-word.yaml` (modified)
+### 6. `apps/base/hello-word.yaml` (modified)
 
 Remove the `Ingress` resource. Replace with:
 ```yaml
@@ -171,7 +164,7 @@ spec:
 
 No nginx-specific annotations needed — TLS redirect is handled by the Gateway listener (HTTP only, no redirect configured).
 
-### 8. `infrastructure/configs/kustomization.yaml` (modified)
+### 7. `infrastructure/configs/kustomization.yaml` (modified)
 
 Add new files in this order (order matters for CRD-before-instance dependency):
 ```yaml
@@ -183,7 +176,7 @@ resources:
   - local-path-sc-patch.yaml   # existing
 ```
 
-### 9. `infrastructure/controllers/kustomization.yaml` (modified)
+### 8. `infrastructure/controllers/kustomization.yaml` (modified)
 
 Remove `ingress-nginx.yaml`, add `envoy-gateway.yaml`:
 ```yaml
@@ -193,7 +186,7 @@ resources:
   - envoy-gateway.yaml   # ← new (replaces ingress-nginx.yaml)
 ```
 
-### 10. `docs/contributing.md` and `AGENTS.md` (updated)
+### 9. `docs/contributing.md` and `AGENTS.md` (updated)
 
 Update the "How to Add a New Application" sections to replace the `Ingress` template with an `HTTPRoute` template. Update all references to `ingressClassName: nginx` and nginx annotations.
 
@@ -213,7 +206,6 @@ Update the "How to Add a New Application" sections to replace the `Ingress` temp
 ## Risks & Notes
 
 - **Longhorn frontend service name:** Longhorn's Helm chart exposes the UI via a Service named `longhorn-frontend` in `longhorn-system`. This is verified from the Longhorn chart — confirm it hasn't changed if using a non-standard version.
-- **Gateway API CRD version compatibility:** Envoy Gateway 1.x requires Gateway API CRDs v1.x. The CRD bundle is pinned to `v1.5.1` via OCI source. If Envoy Gateway later requires a newer API version, update the `ref.tag` and verify compatibility before rollout.
 - **OCI source pattern:** Envoy Gateway uses Flux's `OCIRepository` source with `layerSelector` and `ref.tag`, then a `HelmRelease` that references it via `chartRef`.
 - **Downtime:** Since this is a clean cut-over (not a parallel run), there will be a brief window between removing ingress-nginx and Envoy Gateway becoming ready where HTTP routing is unavailable. Acceptable for a home lab.
 - **`infra-configs` ordering:** Kustomize does not guarantee CRD readiness before dependent resources — Flux's `wait: true` on `infra-controllers` ensures the Envoy Gateway controller is ready, but within `infra-configs` the CRD Helm chart must complete before `GatewayClass`/`Gateway` are applied. Setting `wait: true` on the `infra-configs` Kustomization (or using `dependsOn` within the Kustomization) handles this.

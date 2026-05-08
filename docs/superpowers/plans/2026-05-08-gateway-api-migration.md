@@ -18,7 +18,7 @@
 | Delete | `infrastructure/controllers/ingress-nginx.yaml` | Removed entirely |
 | Modify | `infrastructure/controllers/kustomization.yaml` | Remove ingress-nginx, add envoy-gateway |
 | Modify | `infrastructure/controllers/longhorn.yaml` | Set `ingress.enabled: false`, remove ingressClassName/host |
-| Create | `infrastructure/configs/gateway-api-crds.yaml` | New: OCIRepository + HelmRelease for Gateway API CRDs |
+| Create | `infrastructure/configs/gateway-api-crds.yaml` | Removed; Envoy Gateway main chart includes the needed CRDs |
 | Create | `infrastructure/configs/gateway.yaml` | New: GatewayClass + Gateway resources |
 | Create | `infrastructure/configs/longhorn-httproute.yaml` | New: HTTPRoute for Longhorn UI |
 | Modify | `infrastructure/configs/kustomization.yaml` | Add 3 new files (CRDs first), preserve existing 2 |
@@ -236,63 +236,7 @@ git commit -m "feat(infra): disable Longhorn built-in ingress (will use HTTPRout
 
 ---
 
-## Task 5: Create Gateway API CRDs manifest
-
-**Files:**
-- Create: `infrastructure/configs/gateway-api-crds.yaml`
-
-- [ ] **Step 1: Create the file**
-
-Create `infrastructure/configs/gateway-api-crds.yaml` with this exact content:
-
-```yaml
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: gateway-api-crds
-  namespace: flux-system
-spec:
-  interval: 24h
-  url: oci://ghcr.io/kubernetes-sigs/gateway-api
-  ref:
-    tag: v1.5.1
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
----
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: gateway-api-crds
-  namespace: envoy-gateway-system
-spec:
-  interval: 1h
-  chartRef:
-    kind: OCIRepository
-    name: gateway-api-crds
-```
-
-Note: No `dependsOn` needed here — `infra-configs` already `dependsOn: infra-controllers`, so Envoy Gateway controller is ready before any config is applied.
-
-- [ ] **Step 2: Verify**
-
-```bash
-cat infrastructure/configs/gateway-api-crds.yaml
-```
-
-Expected: 2 YAML documents — OCIRepository and HelmRelease targeting namespace `envoy-gateway-system`.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add infrastructure/configs/gateway-api-crds.yaml
-git commit -m "feat(infra): add Gateway API CRDs HelmRelease"
-```
-
----
-
-## Task 6: Create GatewayClass and Gateway resources
+## Task 5: Create GatewayClass and Gateway resources
 
 **Files:**
 - Create: `infrastructure/configs/gateway.yaml`
@@ -343,7 +287,7 @@ git commit -m "feat(infra): add GatewayClass and shared Gateway"
 
 ---
 
-## Task 7: Create Longhorn HTTPRoute
+## Task 6: Create Longhorn HTTPRoute
 
 **Files:**
 - Create: `infrastructure/configs/longhorn-httproute.yaml`
@@ -394,7 +338,7 @@ git commit -m "feat(infra): add HTTPRoute for Longhorn UI"
 
 ---
 
-## Task 8: Update configs kustomization
+## Task 7: Update configs kustomization
 
 **Files:**
 - Modify: `infrastructure/configs/kustomization.yaml`
@@ -433,7 +377,7 @@ git commit -m "feat(infra): register gateway CRDs, gateway, and longhorn HTTPRou
 
 ---
 
-## Task 9: Migrate hello-world app from Ingress to HTTPRoute
+## Task 8: Migrate hello-world app from Ingress to HTTPRoute
 
 **Files:**
 - Modify: `apps/base/hello-word.yaml`
@@ -522,7 +466,7 @@ git commit -m "feat(apps): migrate hello-world from Ingress to HTTPRoute"
 
 ---
 
-## Task 10: Update docs/contributing.md
+## Task 9: Update docs/contributing.md
 
 **Files:**
 - Modify: `docs/contributing.md`
@@ -649,7 +593,7 @@ git commit -m "docs: update contributing guide for Gateway API (HTTPRoute replac
 
 ---
 
-## Task 11: Update AGENTS.md
+## Task 10: Update AGENTS.md
 
 **Files:**
 - Modify: `AGENTS.md`
@@ -752,13 +696,12 @@ git commit -m "docs: update AGENTS.md for Gateway API migration"
 | Delete `ingress-nginx.yaml` | Task 3 |
 | Update `controllers/kustomization.yaml` | Task 3 |
 | Disable Longhorn built-in ingress | Task 4 |
-| Create `gateway-api-crds.yaml` | Task 5 |
-| Create `gateway.yaml` (GatewayClass + Gateway) | Task 6 |
-| Create `longhorn-httproute.yaml` | Task 7 |
-| Update `configs/kustomization.yaml` (CRDs first) | Task 8 |
-| Migrate hello-world to HTTPRoute | Task 9 |
-| Update `docs/contributing.md` | Task 10 |
-| Update `AGENTS.md` | Task 11 |
+| Create `gateway.yaml` (GatewayClass + Gateway) | Task 5 |
+| Create `longhorn-httproute.yaml` | Task 6 |
+| Update `configs/kustomization.yaml` (CRDs first) | Task 7 |
+| Migrate hello-world to HTTPRoute | Task 8 |
+| Update `docs/contributing.md` | Task 9 |
+| Update `AGENTS.md` | Task 10 |
 | Add `wait: true` to `infra-configs` | Task 1 ✓ (spec noted this was needed) |
 
 All spec requirements covered.
@@ -767,5 +710,4 @@ All spec requirements covered.
 
 1. **Longhorn service name:** The HTTPRoute in Task 7 targets `longhorn-frontend`. Verify this service exists: `kubectl get svc -n longhorn-system`. If the name differs, update `longhorn-httproute.yaml` accordingly.
 2. **OCI source pattern:** Envoy Gateway uses Flux's `OCIRepository` source with `layerSelector` and `ref.tag`, then a `HelmRelease` that references it via `chartRef`.
-3. **Downtime window:** After Task 3 is committed and Flux reconciles, ingress-nginx is removed. HTTP routing is unavailable until Envoy Gateway is ready (Tasks 5–8). For a home lab this is acceptable, but plan for ~5–10 minutes of downtime.
-4. **Gateway API CRD version:** The Gateway API CRD bundle is pinned to `v1.5.1` via OCI source. If Envoy Gateway later requires a newer API version, update the `ref.tag` and verify compatibility before rollout.
+3. **Downtime window:** After Task 3 is committed and Flux reconciles, ingress-nginx is removed. HTTP routing is unavailable until Envoy Gateway is ready (Tasks 5–7). For a home lab this is acceptable, but plan for ~5–10 minutes of downtime.
