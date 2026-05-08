@@ -85,7 +85,7 @@ Each layer `dependsOn` the previous one. Flux will not deploy a layer until its 
 | Worker nodes | `10.10.30.31`, `.32`, `.33` |
 | GitOps tool | Flux CD v2 |
 | Ingress controller | Envoy Gateway (Gateway API) |
-| Ingress IP | `10.10.40.1` |
+| Ingress IP | `10.10.40.2` |
 | MetalLB IP pool | `10.10.40.0 – 10.10.40.250` |
 | Storage | Longhorn (default StorageClass, 2 replicas) |
 | Base domain | `*.kube.local.tnndev.com` |
