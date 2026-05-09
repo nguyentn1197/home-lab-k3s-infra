@@ -14,7 +14,7 @@ metadata:
   namespace: postgres-authentik
 spec:
   hostAPI: https://app.infisical.com/api
-  resyncInterval: 60
+  resyncInterval: 30
   authentication:
     universalAuth:
       secretsScope:
