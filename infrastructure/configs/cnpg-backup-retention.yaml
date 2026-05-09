@@ -58,9 +58,9 @@ spec:
           restartPolicy: Never
           containers:
             - name: retention
-              image: bitnami/kubectl:1.30
+              image: alpine/k8s:1.30.14
               command:
-                - /bin/bash
+                - /bin/sh
                 - -ceu
                 - |
                   retention_days=7
@@ -68,27 +68,27 @@ spec:
 
                   kubectl get scheduledbackups.postgresql.cnpg.io --all-namespaces \
                     -l homelab.tnndev.com/cnpg-retention=7d \
-                    -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' |
-                  while IFS=$'\t' read -r namespace schedule_name; do
-                    if [[ -z "${namespace}" || -z "${schedule_name}" ]]; then
+                    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' |
+                  while read -r namespace schedule_name; do
+                    if [ -z "${namespace}" ] || [ -z "${schedule_name}" ]; then
                       continue
                     fi
 
                     kubectl get backups.postgresql.cnpg.io -n "${namespace}" \
-                      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.status.stoppedAt}{"\t"}{range .metadata.ownerReferences[*]}{.kind}{":"}{.name}{","}{end}{"\n"}{end}' |
-                    while IFS=$'\t' read -r backup_name phase stopped_at owners; do
-                      if [[ "${phase}" != "completed" || "${owners}" != *"ScheduledBackup:${schedule_name},"* ]]; then
-                        continue
-                      fi
+                      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.phase}{" "}{.status.stoppedAt}{" "}{range .metadata.ownerReferences[*]}{.kind}{":"}{.name}{","}{end}{"\n"}{end}' |
+                    while read -r backup_name phase stopped_at owners; do
+                      case "${owners}" in
+                        *"ScheduledBackup:${schedule_name},"*) ;;
+                        *) continue ;;
+                      esac
 
-                      if [[ -z "${stopped_at}" ]]; then
+                      if [ "${phase}" != "completed" ] || [ -z "${stopped_at}" ]; then
                         continue
                       fi
 
                       stopped_epoch="$(date -u -d "${stopped_at}" +%s 2>/dev/null || echo 0)"
-                      if [[ "${stopped_epoch}" -gt 0 && "${stopped_epoch}" -lt "${cutoff_epoch}" ]]; then
+                      if [ "${stopped_epoch}" -gt 0 ] && [ "${stopped_epoch}" -lt "${cutoff_epoch}" ]; then
                         kubectl delete backup.postgresql.cnpg.io -n "${namespace}" "${backup_name}"
                       fi
                     done
                   done
-
