@@ -1,0 +1,101 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-authentik
+---
+# Infisical keys at path /authentik/postgres:
+# AUTHENTIK_POSTGRES_USERNAME, AUTHENTIK_POSTGRES_PASSWORD
+# CNPG requires the rendered username to match bootstrap.initdb.owner.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: authentik-db-app
+  namespace: postgres-authentik
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/authentik/postgres"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: authentik-db-app
+      secretNamespace: postgres-authentik
+      secretType: kubernetes.io/basic-auth
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          username: "{{ .AUTHENTIK_POSTGRES_USERNAME.Value }}"
+          password: "{{ .AUTHENTIK_POSTGRES_PASSWORD.Value }}"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: authentik-db
+  namespace: postgres-authentik
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: authentik-db-rw-lb
+              annotations:
+                metallb.universe.tf/loadBalancerIPs: "10.10.40.2"
+                external-dns.alpha.kubernetes.io/hostname: authentik-db.kube.local.tnndev.com
+            spec:
+              type: LoadBalancer
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+  bootstrap:
+    initdb:
+      database: authentik
+      owner: authentik
+      secret:
+        name: authentik-db-app
+  storage:
+    storageClass: longhorn
+    size: 1Gi
+  walStorage:
+    storageClass: longhorn
+    size: 1Gi
+  backup:
+    target: prefer-standby
+    volumeSnapshot:
+      className: longhorn-backup-vsc
+      snapshotOwnerReference: backup
+      online: false
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: authentik-db-daily-snapshot
+  namespace: postgres-authentik
+  labels:
+    homelab.tnndev.com/cnpg-retention: 7d
+  annotations:
+    homelab.tnndev.com/cnpg-retention: 7d
+    backup.cnpg.io/volumeSnapshotDeadline: "30"
+spec:
+  schedule: "0 0 2 * * *"
+  immediate: false
+  backupOwnerReference: self
+  method: volumeSnapshot
+  online: false
+  cluster:
+    name: authentik-db
+
