@@ -14,6 +14,7 @@ GitOps repository for my home-lab Kubernetes cluster — a 3-master, 3-worker K3
 | Load balancer | MetalLB | Assigns IPs from `10.10.40.1 – 10.10.40.250` to LoadBalancer services |
 | Gateway / ingress | Envoy Gateway | Gateway API HTTP routing at `10.10.40.1` |
 | Storage | Longhorn | Replicated block storage (default StorageClass) |
+| Databases | CloudNativePG | PostgreSQL operator with Longhorn CSI snapshot backups |
 | Secrets operator | Infisical Secrets Operator | Syncs external secrets into Kubernetes Secrets |
 | Apps | hello-world | Example nginx app at `hello.kube.local.tnndev.com` |
 
@@ -42,8 +43,8 @@ Masters have a `CriticalAddonsOnly=true:NoExecute` taint — regular workloads o
 home-lab-k3s-infra/
 ├── clusters/homelab/         # Flux entrypoint — declares what gets deployed
 ├── infrastructure/
-│   ├── controllers/          # Helm releases: MetalLB, Envoy Gateway, Longhorn, Infisical
-│   └── configs/              # CRD instances: Gateway, MetalLB pool, HTTPRoutes, secrets, SC patch
+│   ├── controllers/          # Helm releases and controller sources
+│   └── configs/              # CRD instances, snapshot classes, routes, secrets, SC patch
 ├── apps/
 │   ├── base/                 # App manifests (environment-agnostic)
 │   └── homelab/              # Homelab overlays
@@ -66,8 +67,8 @@ Flux enforces this dependency chain. Each layer waits for the previous one to be
 
 | Layer | Path | Resources |
 |-------|------|-----------|
-| `infra-controllers` | `infrastructure/controllers/` | MetalLB, Longhorn, Envoy Gateway, Infisical Secrets Operator |
-| `infra-configs` | `infrastructure/configs/` | Shared `homelab` Gateway, MetalLB L2 pool, Longhorn HTTPRoute, Longhorn backup secret sync, local-path StorageClass patch, Infisical smoke test |
+| `infra-controllers` | `infrastructure/controllers/` | MetalLB, Longhorn, Envoy Gateway, Infisical Secrets Operator, CloudNativePG, external-snapshotter Flux source |
+| `infra-configs` | `infrastructure/configs/` | Shared `homelab` Gateway, MetalLB L2 pool, Longhorn HTTPRoute, Longhorn backup secret sync, Longhorn backup `VolumeSnapshotClass`, CNPG backup retention, local-path StorageClass patch, Infisical smoke test |
 | `apps` | `apps/homelab/` | Homelab overlay for `apps/base/`; currently deploys `hello-world` |
 
 ---
@@ -125,6 +126,15 @@ See `docs/contributing.md` — the short version:
 1. Add a YAML file to `apps/base/<app-name>.yaml`
 2. Register it in `apps/base/kustomization.yaml`
 3. Commit and push — Flux deploys within 10 minutes
+
+---
+
+## PostgreSQL Notes
+
+- CloudNativePG is installed as a cluster-wide operator in `cnpg-system`.
+- CSI snapshot support is reconciled from the upstream `kubernetes-csi/external-snapshotter` repo at tag `v7.0.2`.
+- Longhorn backup snapshots use `VolumeSnapshotClass/longhorn-backup-vsc`.
+- Reusable examples and restore notes live in `docs/cloudnative-pg.md`.
 
 ---
 

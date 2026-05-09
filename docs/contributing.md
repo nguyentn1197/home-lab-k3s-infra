@@ -162,6 +162,24 @@ Then follow Steps 2–5 above.
 
 ---
 
+## Adding a CloudNativePG PostgreSQL Cluster
+
+PostgreSQL clusters are managed by the CloudNativePG operator. Use the example in
+`docs/examples/cloudnative-pg-cluster.yaml` as the starting point.
+
+1. Copy it to `apps/base/<purpose>-postgres.yaml`.
+2. Rename the namespace to `postgres-<purpose>` and the cluster to `<purpose>-db`.
+3. Replace database names, owner names, storage sizes, and the referenced Secret.
+4. Keep `backup.volumeSnapshot.className: longhorn-backup-vsc` for Longhorn backup snapshots.
+5. Keep the `ScheduledBackup` label and annotation `homelab.tnndev.com/cnpg-retention: 7d` if the 7-day cleanup job should manage its backups.
+6. Add the file to `apps/base/kustomization.yaml`.
+7. Commit and push.
+
+Do not commit database credentials. Sync the referenced Secret with Infisical or
+create it out-of-band before the cluster initializes.
+
+---
+
 ## Adding a New Infrastructure Controller
 
 Infrastructure controllers (cluster-wide tools like MetalLB, ingress-nginx, Longhorn) live in `infrastructure/controllers/`.

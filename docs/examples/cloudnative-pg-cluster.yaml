@@ -1,0 +1,84 @@
+---
+# Copy this file into apps/base/<purpose>-postgres.yaml and replace the
+# example names, sizes, LoadBalancer IPs, FQDNs, and secret reference before
+# adding it to Kustomize.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-example
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: example-db
+  namespace: postgres-example
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: example-db-rw-lb
+              annotations:
+                metallb.universe.tf/loadBalancerIPs: "10.10.40.10"
+                external-dns.alpha.kubernetes.io/hostname: example-db-rw.kube.local.tnndev.com
+            spec:
+              type: LoadBalancer
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+        - selectorType: ro
+          serviceTemplate:
+            metadata:
+              name: example-db-ro-lb
+              annotations:
+                metallb.universe.tf/loadBalancerIPs: "10.10.40.11"
+                external-dns.alpha.kubernetes.io/hostname: example-db-ro.kube.local.tnndev.com
+            spec:
+              type: LoadBalancer
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: example-db-app
+  storage:
+    storageClass: longhorn
+    size: 1Gi
+  walStorage:
+    storageClass: longhorn
+    size: 1Gi
+  backup:
+    target: prefer-standby
+    volumeSnapshot:
+      className: longhorn-backup-vsc
+      snapshotOwnerReference: backup
+      online: false
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: example-db-daily-snapshot
+  namespace: postgres-example
+  labels:
+    homelab.tnndev.com/cnpg-retention: 7d
+  annotations:
+    homelab.tnndev.com/cnpg-retention: 7d
+    backup.cnpg.io/volumeSnapshotDeadline: "30"
+spec:
+  schedule: "0 0 2 * * *"
+  immediate: false
+  backupOwnerReference: self
+  method: volumeSnapshot
+  online: false
+  cluster:
+    name: example-db

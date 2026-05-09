@@ -7,3 +7,5 @@ resources:
   - local-path-sc-patch.yaml
   - infisical-test.yaml
   - longhorn-backup.yaml
+  - longhorn-snapshot-class.yaml
+  - cnpg-backup-retention.yaml

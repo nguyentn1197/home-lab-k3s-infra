@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-backup-retention
+  namespace: cnpg-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-backup-retention
+rules:
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - scheduledbackups
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - backups
+    verbs:
+      - get
+      - list
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cnpg-backup-retention
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cnpg-backup-retention
+subjects:
+  - kind: ServiceAccount
+    name: cnpg-backup-retention
+    namespace: cnpg-system
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cnpg-backup-retention
+  namespace: cnpg-system
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: cnpg-backup-retention
+          restartPolicy: Never
+          containers:
+            - name: retention
+              image: bitnami/kubectl:1.30
+              command:
+                - /bin/bash
+                - -ceu
+                - |
+                  retention_days=7
+                  cutoff_epoch="$(date -u -d "${retention_days} days ago" +%s)"
+
+                  kubectl get scheduledbackups.postgresql.cnpg.io --all-namespaces \
+                    -l homelab.tnndev.com/cnpg-retention=7d \
+                    -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' |
+                  while IFS=$'\t' read -r namespace schedule_name; do
+                    if [[ -z "${namespace}" || -z "${schedule_name}" ]]; then
+                      continue
+                    fi
+
+                    kubectl get backups.postgresql.cnpg.io -n "${namespace}" \
+                      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.status.stoppedAt}{"\t"}{range .metadata.ownerReferences[*]}{.kind}{":"}{.name}{","}{end}{"\n"}{end}' |
+                    while IFS=$'\t' read -r backup_name phase stopped_at owners; do
+                      if [[ "${phase}" != "completed" || "${owners}" != *"ScheduledBackup:${schedule_name},"* ]]; then
+                        continue
+                      fi
+
+                      if [[ -z "${stopped_at}" ]]; then
+                        continue
+                      fi
+
+                      stopped_epoch="$(date -u -d "${stopped_at}" +%s 2>/dev/null || echo 0)"
+                      if [[ "${stopped_epoch}" -gt 0 && "${stopped_epoch}" -lt "${cutoff_epoch}" ]]; then
+                        kubectl delete backup.postgresql.cnpg.io -n "${namespace}" "${backup_name}"
+                      fi
+                    done
+                  done
+
