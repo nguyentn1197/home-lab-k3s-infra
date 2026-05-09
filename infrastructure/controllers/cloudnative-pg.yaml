@@ -32,4 +32,5 @@ spec:
   values:
     config:
       clusterWide: true
-
+    podAnnotations:
+      homelab.tnndev.com/restarted-for-volume-snapshot-crds: "2026-05-09"
