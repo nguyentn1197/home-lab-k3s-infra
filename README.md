@@ -16,7 +16,7 @@ GitOps repository for my home-lab Kubernetes cluster — a 3-master, 3-worker K3
 | Storage | Longhorn | Replicated block storage (default StorageClass) |
 | Databases | CloudNativePG | PostgreSQL operator with Longhorn CSI snapshot backups |
 | Secrets operator | Infisical Secrets Operator | Syncs external secrets into Kubernetes Secrets |
-| Apps | hello-world | Example nginx app at `hello.kube.local.tnndev.com` |
+| Apps | hello-world, authentik | Example nginx app and Authentik identity provider |
 
 ---
 
@@ -69,7 +69,7 @@ Flux enforces this dependency chain. Each layer waits for the previous one to be
 |-------|------|-----------|
 | `infra-controllers` | `infrastructure/controllers/` | MetalLB, Longhorn, Envoy Gateway, Infisical Secrets Operator, CloudNativePG, external-snapshotter Flux source |
 | `infra-configs` | `infrastructure/configs/` | Shared `homelab` Gateway, MetalLB L2 pool, Longhorn HTTPRoute, Longhorn backup secret sync, Longhorn backup `VolumeSnapshotClass`, CNPG backup retention, local-path StorageClass patch, Infisical smoke test |
-| `apps` | `apps/homelab/` | Homelab overlay for `apps/base/`; currently deploys `hello-world` |
+| `apps` | `apps/homelab/` | Homelab overlay for `apps/base/`; currently deploys `hello-world`, Authentik, and Authentik's PostgreSQL cluster |
 
 ---
 
@@ -135,6 +135,19 @@ See `docs/contributing.md` — the short version:
 - CSI snapshot support is reconciled from the upstream `kubernetes-csi/external-snapshotter` repo at tag `v7.0.2`.
 - Longhorn backup snapshots use `VolumeSnapshotClass/longhorn-backup-vsc`.
 - Reusable examples and restore notes live in `docs/cloudnative-pg.md`.
+
+---
+
+## Authentik Notes
+
+- Authentik is deployed from `apps/base/authentik/authentik.yaml`.
+- The Helm chart is pinned to the `2026.2.x` release line.
+- It uses the CNPG service `authentik-db-rw.postgres-authentik.svc.cluster.local`.
+- The UI is exposed through Gateway API at `authentik.kube.local.tnndev.com`.
+- Required Infisical keys:
+  - `/authentik/app`: `AUTHENTIK_SECRET_KEY`
+  - `/authentik/postgres`: `AUTHENTIK_POSTGRES_USERNAME`, `AUTHENTIK_POSTGRES_PASSWORD`
+- Optional chart values are listed, commented out, in `apps/base/authentik/authentik-values-options.yaml`.
 
 ---
 
