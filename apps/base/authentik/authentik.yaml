@@ -132,4 +132,13 @@ spec:
           parentRefs:
             - name: homelab
               namespace: envoy-gateway-system
-    
+          filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                set:
+                  - name: X-Forwarded-Proto
+                    value: "https"
+                  - name: X-Forwarded-Scheme
+                    value: "https"
+                  - name: X-Forwarded-Port
+                    value: "443"
