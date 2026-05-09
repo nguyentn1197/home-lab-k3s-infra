@@ -11,9 +11,10 @@ GitOps repository for my home-lab Kubernetes cluster — a 3-master, 3-worker K3
 | Cluster provisioning | Ansible | Installs K3s on bare Ubuntu VMs |
 | High-availability VIP | kube-vip | Provides a stable API server IP (`10.10.30.20`) |
 | GitOps | Flux CD v2 | Reconciles this repo → cluster state |
-| Load balancer | MetalLB | Assigns IPs from `10.10.40.0/24` to LoadBalancer services |
-| Ingress | ingress-nginx | HTTP routing at `10.10.40.1` |
+| Load balancer | MetalLB | Assigns IPs from `10.10.40.1 – 10.10.40.250` to LoadBalancer services |
+| Gateway / ingress | Envoy Gateway | Gateway API HTTP routing at `10.10.40.1` |
 | Storage | Longhorn | Replicated block storage (default StorageClass) |
+| Secrets operator | Infisical Secrets Operator | Syncs external secrets into Kubernetes Secrets |
 | Apps | hello-world | Example nginx app at `hello.kube.local.tnndev.com` |
 
 ---
@@ -41,8 +42,8 @@ Masters have a `CriticalAddonsOnly=true:NoExecute` taint — regular workloads o
 home-lab-k3s-infra/
 ├── clusters/homelab/         # Flux entrypoint — declares what gets deployed
 ├── infrastructure/
-│   ├── controllers/          # Helm releases: MetalLB, ingress-nginx, Longhorn
-│   └── configs/              # CRD instances: MetalLB IP pool, StorageClass patch
+│   ├── controllers/          # Helm releases: MetalLB, Envoy Gateway, Longhorn, Infisical
+│   └── configs/              # CRD instances: Gateway, MetalLB pool, HTTPRoutes, secrets, SC patch
 ├── apps/
 │   ├── base/                 # App manifests (environment-agnostic)
 │   └── homelab/              # Homelab overlays
@@ -60,6 +61,14 @@ infra-controllers → infra-configs → apps
 ```
 
 Flux enforces this dependency chain. Each layer waits for the previous one to be healthy before deploying.
+
+### Current Flux Layers
+
+| Layer | Path | Resources |
+|-------|------|-----------|
+| `infra-controllers` | `infrastructure/controllers/` | MetalLB, Longhorn, Envoy Gateway, Infisical Secrets Operator |
+| `infra-configs` | `infrastructure/configs/` | Shared `homelab` Gateway, MetalLB L2 pool, Longhorn HTTPRoute, Longhorn backup secret sync, local-path StorageClass patch, Infisical smoke test |
+| `apps` | `apps/homelab/` | Homelab overlay for `apps/base/`; currently deploys `hello-world` |
 
 ---
 
@@ -103,7 +112,7 @@ flux bootstrap github \
 # Watch Flux reconcile
 flux get kustomizations --watch
 
-# Check all resources
+# Check all resources (read-only)
 kubectl get all -A
 ```
 
@@ -121,6 +130,17 @@ See `docs/contributing.md` — the short version:
 
 ## Networking Notes
 
-- TLS is terminated **upstream** (by a reverse proxy or router) — ingress-nginx runs plain HTTP inside the cluster.
-- All services use the domain pattern `<app>.kube.local.tnndev.com`.
-- MetalLB IP pool: `10.10.40.0 – 10.10.40.250`. Make sure this range doesn't overlap with your router's DHCP range.
+- TLS is terminated **upstream** (by a reverse proxy or router) — Envoy Gateway handles plain HTTP inside the cluster.
+- The shared Gateway is `envoy-gateway-system/homelab`, with a wildcard listener for `*.kube.local.tnndev.com`.
+- Envoy Gateway is assigned `10.10.40.1` through MetalLB.
+- MetalLB IP pool: `10.10.40.1 – 10.10.40.250`. Make sure this range doesn't overlap with your router's DHCP range.
+- Current HTTPRoutes:
+  - `hello.kube.local.tnndev.com` → `hello-world/hello-world`
+  - `longhorn.kube.local.tnndev.com` → `longhorn-system/longhorn-frontend`
+
+## Secrets Notes
+
+- The Infisical Secrets Operator is installed from `infrastructure/controllers/infisical.yaml`.
+- `infrastructure/configs/longhorn-backup.yaml` syncs CIFS backup credentials into `longhorn-system/longhorn-backup-cifs` for Longhorn backups.
+- `infrastructure/configs/infisical-test.yaml` is a smoke-test sync for validating the operator and can be removed once it is no longer needed.
+- Do not commit plaintext secrets. Bootstrap credentials such as `infisical-universal-auth` must be created out-of-band.
