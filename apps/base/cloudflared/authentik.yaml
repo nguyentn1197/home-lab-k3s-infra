@@ -1,0 +1,102 @@
+---
+# Infisical keys at path /cloudflared/authentik:
+#   CLOUDFLARE_TUNNEL_ID             — UUID from `cloudflared tunnel create`
+#   CLOUDFLARE_TUNNEL_CREDENTIALS_JSON — full JSON content from `cloudflared tunnel create`
+#
+# The operator renders config.yaml (including the tunnel UUID) directly into the
+# K8s Secret via Go template, so no ConfigMap or init container is needed.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: cloudflared-authentik-secret
+  namespace: authentik
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 30
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/cloudflared/authentik"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: cloudflared-authentik-secret
+      secretNamespace: authentik
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          credentials.json: "{{ .CLOUDFLARE_TUNNEL_CREDENTIALS_JSON.Value }}"
+          config.yaml: |
+            tunnel: {{ .CLOUDFLARE_TUNNEL_ID.Value }}
+            credentials-file: /etc/cloudflared/credentials.json
+            metrics: 0.0.0.0:2000
+            no-autoupdate: true
+
+            ingress:
+              - hostname: authentik.tnndev.com
+                path: /if/admin/.*
+                service: http_status:403
+              - hostname: authentik.tnndev.com
+                path: /django-admin/.*
+                service: http_status:403
+              - hostname: authentik.tnndev.com
+                service: http://authentik-server.authentik.svc.cluster.local:9000
+                originRequest:
+                  httpHostHeader: authentik.tnndev.com
+              - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-authentik
+  namespace: authentik
+spec:
+  # Two replicas — each opens independent connections to Cloudflare's edge for HA
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared-authentik
+  template:
+    metadata:
+      labels:
+        app: cloudflared-authentik
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: cloudflared-files
+              mountPath: /etc/cloudflared
+              readOnly: true
+      volumes:
+        - name: cloudflared-files
+          secret:
+            secretName: cloudflared-authentik-secret
+            items:
+              - key: config.yaml
+                path: config.yaml
+              - key: credentials.json
+                path: credentials.json

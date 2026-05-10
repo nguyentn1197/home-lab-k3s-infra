@@ -124,6 +124,35 @@ See `docs/contributing.md` for the full workflow. Short version:
 
 ---
 
+## How to Add a New Cloudflare Tunnel
+
+Each app that needs public internet exposure gets its own named tunnel. Tunnels live in `apps/base/cloudflared/<app-name>.yaml` and deploy into the target app's existing namespace (no separate `cloudflared` namespace).
+
+### One-time CLI setup (run locally, then commit the UUID)
+
+```sh
+cloudflared tunnel login                          # authenticate to tnndev.com zone
+cloudflared tunnel create <app-name>-tunnel       # prints tunnel UUID
+cloudflared tunnel route dns <app-name>-tunnel <hostname>  # e.g. app.tnndev.com
+```
+
+Store the credentials JSON in Infisical at `/cloudflared/<app-name>` → key `CLOUDFLARE_TUNNEL_CREDENTIALS_JSON`.
+
+### GitOps manifest (`apps/base/cloudflared/<app-name>.yaml`)
+
+Two resources, both in the app's namespace:
+
+1. **InfisicalSecret** — named `cloudflared-<app>-secret`, Infisical path `/cloudflared/<app>`. The `template.data` section renders both `credentials.json` and `config.yaml` (with `{{ .CLOUDFLARE_TUNNEL_ID.Value }}` embedded) directly into the K8s Secret via Go template — no ConfigMap or init container needed.
+2. **Deployment** — named `cloudflared-<app>`, 2 replicas, selector label `app: cloudflared-<app>`. Mounts the secret at `/etc/cloudflared/` using `items` projection to expose `config.yaml` and `credentials.json` as files.
+
+The ingress rules in the `config.yaml` template control what paths are blocked or forwarded. Admin/sensitive paths return `http_status:403` before reaching the origin service.
+
+Add the new file to `apps/base/kustomization.yaml` resources, then commit and push.
+
+See `apps/base/cloudflared/authentik.yaml` and `docs/cloudflared-authentik.md` for a complete worked example.
+
+---
+
 ## How to Add a New Infrastructure Controller
 
 1. Create `infrastructure/controllers/<tool-name>.yaml` with Namespace + HelmRepository + HelmRelease.
@@ -136,12 +165,21 @@ See `docs/contributing.md` for the full workflow. Short version:
 
 ## Secrets Handling
 
-**There are currently no secrets in this repository.** The cluster token in `k3s-cluster/ansible/inventory/hosts.ini` is a provisioning-time secret used only by Ansible — it is not a Kubernetes secret.
+**No plaintext secrets are committed to this repository.** The cluster token in `k3s-cluster/ansible/inventory/hosts.ini` is Ansible provisioning-only and is not a Kubernetes secret.
 
-For future Kubernetes secrets:
-- **Do not commit plaintext secrets.**
-- Use [SOPS](https://github.com/getsops/sops) with Age encryption, or [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets).
-- If SOPS is adopted, add a `.sops.yaml` config file and document the key management approach here.
+All Kubernetes secrets are managed by **Infisical** via the `InfisicalSecret` CRD (operator in `infisical-operator-system`). The operator syncs secrets from [Infisical](https://app.infisical.com) project `home-lab-k3s` (env: `prod`) into K8s Secrets in the target namespace.
+
+### Infisical secret path conventions
+
+| App / component | Infisical path | K8s Secret name |
+|----------------|---------------|-----------------|
+| Authentik app | `/authentik/app` | `authentik-app-secrets` |
+| Authentik postgres | `/authentik/postgres` | `authentik-postgres-secrets` (+ `authentik-db-app`) |
+| Cloudflare tunnel (authentik) | `/cloudflared/authentik` (`CLOUDFLARE_TUNNEL_ID`, `CLOUDFLARE_TUNNEL_CREDENTIALS_JSON`) | `cloudflared-authentik-secret` |
+
+Pattern for new tunnels: `/cloudflared/<app-name>` → `cloudflared-<app-name>-secret`, always with both `CLOUDFLARE_TUNNEL_ID` and `CLOUDFLARE_TUNNEL_CREDENTIALS_JSON` keys. The Infisical operator renders `config.yaml` (with the tunnel UUID embedded) directly into the K8s Secret via Go template — no ConfigMap or init container needed.
+
+**Do not commit secrets.** If a new secret is needed, add an `InfisicalSecret` resource pointing to the correct Infisical path and document the required keys with a comment in the YAML file.
 
 ---
 

@@ -4,3 +4,4 @@ resources:
   - hello-word.yaml
   - authentik/authentik-postgres.yaml
   - authentik/authentik.yaml
+  - cloudflared/authentik.yaml
