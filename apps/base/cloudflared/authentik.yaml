@@ -18,7 +18,7 @@ spec:
       secretsScope:
         projectSlug: home-lab-k3s
         envSlug: prod
-        secretsPath: "/cloudflared/authentik"
+        secretsPath: "/authentik/app"
         recursive: false
       credentialsRef:
         secretName: infisical-universal-auth
