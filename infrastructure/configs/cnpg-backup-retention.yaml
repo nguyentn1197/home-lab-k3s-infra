@@ -63,16 +63,26 @@ spec:
                 - /bin/sh
                 - -ceu
                 - |
-                  retention_days=7
-                  cutoff_epoch="$(date -u -d "${retention_days} days ago" +%s)"
-
+                  # List all ScheduledBackups that carry a retention label (any value).
+                  # go-template handles the "/" in the label key reliably.
                   kubectl get scheduledbackups.postgresql.cnpg.io --all-namespaces \
-                    -l homelab.tnndev.com/cnpg-retention=7d \
-                    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' |
-                  while read -r namespace schedule_name; do
-                    if [ -z "${namespace}" ] || [ -z "${schedule_name}" ]; then
+                    -l 'homelab.tnndev.com/cnpg-retention' \
+                    -o go-template \
+                    --template='{{range .items}}{{.metadata.namespace}} {{.metadata.name}} {{index .metadata.labels "homelab.tnndev.com/cnpg-retention"}}{{"\n"}}{{end}}' |
+                  while read -r namespace schedule_name retention_label; do
+                    if [ -z "${namespace}" ] || [ -z "${schedule_name}" ] || [ -z "${retention_label}" ]; then
                       continue
                     fi
+
+                    # Parse "7d" -> 7; skip if the label value is not a plain number followed by "d".
+                    retention_days="${retention_label%d}"
+                    if ! echo "${retention_days}" | grep -qE '^[0-9]+$'; then
+                      echo "Skipping ${namespace}/${schedule_name}: unrecognised retention label '${retention_label}'"
+                      continue
+                    fi
+
+                    # BusyBox date does not support "-d '7 days ago'"; use arithmetic instead.
+                    cutoff_epoch="$(( $(date -u +%s) - retention_days * 86400 ))"
 
                     kubectl get backups.postgresql.cnpg.io -n "${namespace}" \
                       -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.phase}{" "}{.status.stoppedAt}{" "}{range .metadata.ownerReferences[*]}{.kind}{":"}{.name}{","}{end}{"\n"}{end}' |
@@ -86,8 +96,12 @@ spec:
                         continue
                       fi
 
-                      stopped_epoch="$(date -u -d "${stopped_at}" +%s 2>/dev/null || echo 0)"
+                      # Strip trailing Z and any fractional seconds so BusyBox date can parse it.
+                      stopped_at_base="${stopped_at%Z}"
+                      stopped_at_base="${stopped_at_base%%.*}"
+                      stopped_epoch="$(date -u -D "%Y-%m-%dT%H:%M:%S" -d "${stopped_at_base}" +%s 2>/dev/null || echo 0)"
                       if [ "${stopped_epoch}" -gt 0 ] && [ "${stopped_epoch}" -lt "${cutoff_epoch}" ]; then
+                        echo "Deleting ${namespace}/${backup_name} (older than ${retention_days}d)"
                         kubectl delete backup.postgresql.cnpg.io -n "${namespace}" "${backup_name}"
                       fi
                     done
