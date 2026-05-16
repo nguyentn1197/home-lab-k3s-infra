@@ -43,7 +43,7 @@ metadata:
   namespace: postgres-immich
 spec:
   instances: 3
-  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:pg16-v0.4.3
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
   primaryUpdateStrategy: unsupervised
   managed:
     services:
