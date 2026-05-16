@@ -1,0 +1,84 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-immich
+---
+# Infisical keys at path /immich/postgres:
+# IMMICH_POSTGRES_USERNAME, IMMICH_POSTGRES_PASSWORD
+# CNPG requires the rendered username to match bootstrap.initdb.owner.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: immich-db-app
+  namespace: postgres-immich
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 30
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/immich/postgres"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: immich-db-app
+      secretNamespace: postgres-immich
+      secretType: kubernetes.io/basic-auth
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          username: "{{ .IMMICH_POSTGRES_USERNAME.Value }}"
+          password: "{{ .IMMICH_POSTGRES_PASSWORD.Value }}"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: immich-db
+  namespace: postgres-immich
+spec:
+  instances: 3
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:pg16-v0.4.3
+  primaryUpdateStrategy: unsupervised
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: immich-db-rw-lb
+              annotations:
+                metallb.io/loadBalancerIPs: "10.10.40.3"
+                external-dns.alpha.kubernetes.io/hostname: immich-db.kube.local.tnndev.com
+            spec:
+              type: LoadBalancer
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+  postgresql:
+    shared_preload_libraries:
+      - "vchord.so"
+    parameters:
+      search_path: '"$user", public, vectors'
+  bootstrap:
+    initdb:
+      database: immich
+      owner: immich
+      secret:
+        name: immich-db-app
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        - CREATE EXTENSION IF NOT EXISTS vchord;
+        - CREATE EXTENSION IF NOT EXISTS earthdistance;
+  storage:
+    storageClass: local-path
+    size: 10Gi
+  walStorage:
+    storageClass: local-path
+    size: 5Gi

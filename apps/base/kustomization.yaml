@@ -5,3 +5,4 @@ resources:
   - authentik/authentik-postgres.yaml
   - authentik/authentik.yaml
   - cloudflared/authentik.yaml
+  - immich/immich-postgres.yaml
