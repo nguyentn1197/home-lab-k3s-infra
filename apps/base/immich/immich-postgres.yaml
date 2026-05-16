@@ -72,8 +72,10 @@ spec:
         name: immich-db-app
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-        - CREATE EXTENSION IF NOT EXISTS vchord;
+        - CREATE EXTENSION IF NOT EXISTS cube;
         - CREATE EXTENSION IF NOT EXISTS earthdistance;
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS vchord;
   storage:
     storageClass: local-path
     size: 10Gi
