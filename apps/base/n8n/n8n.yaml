@@ -1,0 +1,215 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: n8n
+---
+# Infisical keys at path /n8n/app:
+# N8N_ENCRYPTION_KEY — generate once with `openssl rand -base64 24`.
+# CRITICAL: all credentials stored in n8n are encrypted with this key.
+# Never rotate/lose it or every saved credential becomes unrecoverable.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: n8n-app-secrets
+  namespace: n8n
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 30
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/n8n/app"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: n8n-app-secrets
+      secretNamespace: n8n
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          N8N_ENCRYPTION_KEY: "{{ .N8N_ENCRYPTION_KEY.Value }}"
+---
+# Infisical keys at path /n8n/postgres:
+# N8N_POSTGRES_USERNAME, N8N_POSTGRES_PASSWORD (same values as the CNPG
+# bootstrap secret in postgres-n8n).
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: n8n-postgres-secrets
+  namespace: n8n
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 30
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/n8n/postgres"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: n8n-postgres-secrets
+      secretNamespace: n8n
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          DB_POSTGRESDB_USER: "{{ .N8N_POSTGRES_USERNAME.Value }}"
+          DB_POSTGRESDB_PASSWORD: "{{ .N8N_POSTGRES_PASSWORD.Value }}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data
+  namespace: n8n
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: n8n
+spec:
+  # Single replica: n8n cannot run multiple mains without queue mode.
+  # Recoverable via restart — state lives in CNPG postgres + the PVC.
+  replicas: 1
+  strategy:
+    type: Recreate   # RWO volume — avoid multi-attach during rollouts
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      securityContext:
+        fsGroup: 1000   # PVC writable by the "node" user in the image
+      containers:
+        - name: n8n
+          # Consider pinning to a specific version; n8n releases weekly and
+          # `latest` will jump versions on every pod recreation.
+          image: docker.n8n.io/n8nio/n8n:latest
+          ports:
+            - name: http
+              containerPort: 5678
+          env:
+            - name: DB_TYPE
+              value: postgresdb
+            - name: DB_POSTGRESDB_HOST
+              value: n8n-db-rw.postgres-n8n.svc.cluster.local
+            - name: DB_POSTGRESDB_PORT
+              value: "5432"
+            - name: DB_POSTGRESDB_DATABASE
+              value: n8n
+            # Public hostname is canonical (UI is accessed externally through
+            # Cloudflare Access); the LAN HTTPRoute still works.
+            - name: N8N_HOST
+              value: n8n.tnndev.com
+            - name: N8N_PORT
+              value: "5678"
+            - name: N8N_PROTOCOL
+              value: http   # TLS terminated upstream / at Cloudflare
+            - name: N8N_EDITOR_BASE_URL
+              value: https://n8n.tnndev.com/
+            # Public webhook base — external services call this via the
+            # Cloudflare tunnel (apps/base/cloudflared/n8n.yaml).
+            - name: WEBHOOK_URL
+              value: https://n8n.tnndev.com/
+            - name: N8N_METRICS
+              value: "true"
+            - name: N8N_DIAGNOSTICS_ENABLED
+              value: "false"
+            - name: N8N_RUNNERS_ENABLED
+              value: "true"
+            - name: GENERIC_TIMEZONE
+              value: Asia/Ho_Chi_Minh   # set your local TZ for schedule triggers
+          envFrom:
+            - secretRef:
+                name: n8n-app-secrets
+            - secretRef:
+                name: n8n-postgres-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz/readiness
+              port: 5678
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/.n8n
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: n8n-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n
+  namespace: n8n
+  labels:
+    app: n8n
+spec:
+  selector:
+    app: n8n
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5678
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: n8n
+  namespace: n8n
+spec:
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - "n8n.kube.local.tnndev.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: n8n
+          port: 80
+---
+# Prometheus scrapes this automatically (selectors accept all ServiceMonitors).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: n8n
+  namespace: n8n
+spec:
+  selector:
+    matchLabels:
+      app: n8n
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

@@ -1,0 +1,108 @@
+---
+# Public ingress for n8n via Cloudflare tunnel — UI + webhooks.
+#
+# SECURITY: the tunnel forwards ALL paths, so n8n.tnndev.com MUST be
+# protected by Cloudflare Access (Authentik as OIDC IdP) before this is
+# deployed, with a Bypass policy for /webhook/* only.
+# Setup steps: docs/n8n.md.
+#
+# One-time setup (run locally, then store in Infisical at /cloudflared/n8n):
+#   cloudflared tunnel login
+#   cloudflared tunnel create n8n-tunnel          # prints tunnel UUID
+#   cloudflared tunnel route dns n8n-tunnel n8n.tnndev.com
+#
+# Infisical keys at path /cloudflared/n8n:
+#   CLOUDFLARE_TUNNEL_ID                — UUID from `cloudflared tunnel create`
+#   CLOUDFLARE_TUNNEL_CREDENTIALS_JSON  — full credentials JSON content
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: cloudflared-n8n-secret
+  namespace: n8n
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 30
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/cloudflared/n8n"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: cloudflared-n8n-secret
+      secretNamespace: n8n
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          credentials.json: "{{ .CLOUDFLARE_TUNNEL_CREDENTIALS_JSON.Value }}"
+          config.yaml: |
+            tunnel: {{ .CLOUDFLARE_TUNNEL_ID.Value }}
+            credentials-file: /etc/cloudflared/credentials.json
+            metrics: 0.0.0.0:2000
+            no-autoupdate: true
+
+            ingress:
+              # All paths forwarded. Auth is enforced at the edge by
+              # Cloudflare Access (Allow via Authentik OIDC for the UI,
+              # Bypass for /webhook/*) — see docs/n8n.md.
+              - hostname: n8n.tnndev.com
+                service: http://n8n.n8n.svc.cluster.local:80
+                originRequest:
+                  httpHostHeader: n8n.tnndev.com
+              - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-n8n
+  namespace: n8n
+spec:
+  # Two replicas — each opens independent connections to Cloudflare's edge for HA
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared-n8n
+  template:
+    metadata:
+      labels:
+        app: cloudflared-n8n
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: cloudflared-files
+              mountPath: /etc/cloudflared
+              readOnly: true
+      volumes:
+        - name: cloudflared-files
+          secret:
+            secretName: cloudflared-n8n-secret
+            items:
+              - key: config.yaml
+                path: config.yaml
+              - key: credentials.json
+                path: credentials.json
