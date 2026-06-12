@@ -1,0 +1,36 @@
+// Alloy config for an external docker host (mounted by docker-compose.yml).
+// Ships all container logs to the homelab Loki.
+// HOST_LABEL and LOKI_URL come from the compose environment.
+
+loki.write "homelab" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+  external_labels = {
+    host = sys.env("HOST_LABEL"),
+  }
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.write.homelab.receiver]
+  labels     = { job = "docker" }
+}

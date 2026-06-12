@@ -1,0 +1,90 @@
+---
+# Grafana Alloy — in-cluster log collector (DaemonSet, clustered).
+# Tails every pod's logs via the kubelet API and pushes them to Loki.
+# Clustering shards the tail targets across DaemonSet members so logs
+# are not duplicated. Stateless: any pod restart just re-resolves targets.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: alloy
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 12h
+  values:
+    controller:
+      type: daemonset
+      # Collect logs from master nodes too (CriticalAddonsOnly taint).
+      tolerations:
+        - operator: Exists
+    alloy:
+      clustering:
+        enabled: true
+      configMap:
+        create: true
+        content: |
+          // ---- Discover all pods and keep useful labels ----
+          discovery.kubernetes "pods" {
+            role = "pod"
+          }
+
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              target_label  = "app"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+          }
+
+          // ---- Tail pod logs (sharded across the cluster members) ----
+          loki.source.kubernetes "pods" {
+            targets    = discovery.relabel.pod_logs.output
+            forward_to = [loki.write.default.receiver]
+            clustering {
+              enabled = true
+            }
+          }
+
+          // ---- Ship to Loki ----
+          loki.write "default" {
+            endpoint {
+              url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+            }
+            external_labels = {
+              cluster = "homelab",
+            }
+          }

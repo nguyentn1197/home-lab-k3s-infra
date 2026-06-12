@@ -1,0 +1,106 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://prometheus-community.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 1h
+  timeout: 15m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: "86.x"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 12h
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    prometheus:
+      prometheusSpec:
+        replicas: 1
+        retention: 15d
+        retentionSize: 45GB
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 50Gi   # Longhorn (default StorageClass, 2 replicas)
+        # Pick up ServiceMonitors / PodMonitors / Probes / Rules / ScrapeConfigs
+        # from ALL namespaces regardless of helm release labels. This is what
+        # lets us drop ScrapeConfig CRDs in infrastructure/configs/ for
+        # external (non-cluster) targets like docker-host cadvisor or VM
+        # node_exporter without touching this file.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        scrapeConfigSelectorNilUsesHelmValues: false
+    alertmanager:
+      enabled: true
+      alertmanagerSpec:
+        replicas: 1
+        storage:
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 2Gi
+    grafana:
+      enabled: true
+      fullnameOverride: grafana
+      # Single replica + PVC: not HA, but dashboards/users survive restarts.
+      # Recreate strategy avoids RWO multi-attach errors on upgrades.
+      persistence:
+        enabled: true
+        type: pvc
+        size: 2Gi
+      deploymentStrategy:
+        type: Recreate
+      additionalDataSources:
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki-gateway.monitoring.svc.cluster.local
+      # Default admin password is auto-generated into the
+      # `grafana` Secret (kubectl -n monitoring get secret grafana -o ...).
+      # Swap to an InfisicalSecret + admin.existingSecret if desired.
+    prometheus-node-exporter:
+      # Masters carry CriticalAddonsOnly=true:NoExecute; we still want
+      # node metrics from them.
+      tolerations:
+        - operator: Exists
+    # K3s runs controller-manager/scheduler/proxy/etcd embedded and does not
+    # expose their metrics endpoints by default — disable these scrapes to
+    # avoid permanently-down targets and false TargetDown alerts.
+    # (kubelet + cadvisor + apiserver scraping still works normally.)
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    kubeEtcd:
+      enabled: false

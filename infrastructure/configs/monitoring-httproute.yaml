@@ -1,0 +1,63 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - "grafana.kube.local.tnndev.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: grafana
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - "prometheus.kube.local.tnndev.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kube-prometheus-stack-prometheus
+          port: 9090
+---
+# External log ingestion endpoint. Machines outside the cluster (VMs, docker
+# hosts) push logs here: http://loki.kube.local.tnndev.com/loki/api/v1/push
+# Only the push/query API paths are exposed; see docs/monitoring.md.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - "loki.kube.local.tnndev.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /loki/api
+      backendRefs:
+        - name: loki-gateway
+          port: 80

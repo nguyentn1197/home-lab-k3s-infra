@@ -1,0 +1,62 @@
+# Monitoring agents for an external docker host:
+#   - cadvisor       -> container metrics on :8080  (job: external-cadvisor)
+#   - node_exporter  -> host metrics on :9100       (job: external-node)
+#   - alloy          -> ships container LOGS to the homelab Loki (job: docker)
+#
+# Metrics are PULLED: register this machine's IP in
+# infrastructure/configs/monitoring-external-scrape.yaml and allow
+# 8080/9100 from the cluster (10.10.30.0/24) in the host firewall.
+# Logs are PUSHED by alloy; config lives in ./config.alloy.
+#
+# Usage:
+#   HOST_LABEL=my-docker-host docker compose up -d
+# (HOST_LABEL defaults to "docker-host" — set it per machine.)
+#
+# Host journal logs (optional) are handled by setup-alloy.sh, not this stack.
+services:
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    restart: unless-stopped
+    network_mode: host   # listens on :9100
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - "--path.rootfs=/host"
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    environment:
+      HOST_LABEL: ${HOST_LABEL:-docker-host}
+      LOKI_URL: ${LOKI_URL:-http://loki.kube.local.tnndev.com/loki/api/v1/push}
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - --server.http.listen-addr=127.0.0.1:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+
+volumes:
+  alloy-data:

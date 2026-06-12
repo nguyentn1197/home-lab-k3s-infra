@@ -7,3 +7,6 @@ resources:
   - envoy-gateway.yaml
   - infisical.yaml
   - cloudnative-pg.yaml
+  - kube-prometheus-stack.yaml
+  - loki.yaml
+  - alloy.yaml

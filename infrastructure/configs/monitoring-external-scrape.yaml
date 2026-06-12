@@ -1,0 +1,46 @@
+---
+# External (non-cluster) metric targets, scraped by the in-cluster
+# Prometheus via the prometheus-operator ScrapeConfig CRD.
+#
+# Prometheus is configured (scrapeConfigSelectorNilUsesHelmValues: false)
+# to pick up every ScrapeConfig in the cluster, so adding a new external
+# machine = adding a target line here and committing.
+#
+# >>> Replace the placeholder IPs below with real hosts before relying on
+# >>> these; a missing host simply shows as a "down" target in Prometheus.
+#
+# On each docker host, run cAdvisor:
+#   docker run -d --restart=always --name=cadvisor -p 8080:8080 \
+#     -v /:/rootfs:ro -v /var/run:/var/run:ro -v /sys:/sys:ro \
+#     -v /var/lib/docker/:/var/lib/docker:ro -v /dev/disk/:/dev/disk:ro \
+#     gcr.io/cadvisor/cadvisor:latest
+# On each VM, run node_exporter (binary, systemd unit, or container, port 9100).
+# apiVersion: monitoring.coreos.com/v1alpha1
+# kind: ScrapeConfig
+# metadata:
+#   name: external-docker-cadvisor
+#   namespace: monitoring
+# spec:
+#   scrapeInterval: 30s
+#   metricsPath: /metrics
+#   staticConfigs:
+#     - labels:
+#         job: external-cadvisor
+#         host: docker-host-1        # friendly name shown in dashboards
+#       targets:
+#         - "10.10.0.50:8080"        # <-- replace with the docker host IP
+# ---
+# apiVersion: monitoring.coreos.com/v1alpha1
+# kind: ScrapeConfig
+# metadata:
+#   name: external-node-exporter
+#   namespace: monitoring
+# spec:
+#   scrapeInterval: 30s
+#   metricsPath: /metrics
+#   staticConfigs:
+#     - labels:
+#         job: external-node
+#         host: vm-1                 # friendly name shown in dashboards
+#       targets:
+#         - "10.10.0.50:9100"        # <-- replace with the VM IP
