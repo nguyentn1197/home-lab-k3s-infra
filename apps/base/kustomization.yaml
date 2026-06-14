@@ -6,6 +6,3 @@ resources:
   - authentik/authentik.yaml
   - cloudflared/authentik.yaml
   - immich/immich-postgres.yaml
-  - n8n/n8n-postgres.yaml
-  - n8n/n8n.yaml
-  - cloudflared/n8n.yaml
