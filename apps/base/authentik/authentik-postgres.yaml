@@ -70,11 +70,22 @@ spec:
                   port: 5432
                   targetPort: 5432
   bootstrap:
-    initdb:
-      database: authentik
-      owner: authentik
-      secret:
-        name: authentik-db-app
+    # initdb:
+    #   database: authentik
+    #   owner: authentik
+    #   secret:
+    #     name: authentik-db-app
+    recovery:
+      volumeSnapshots:
+        storage:
+          name: authentik-db-daily-snapshot-20260727020000
+          kind: VolumeSnapshot
+          apiGroup: snapshot.storage.k8s.io
+
+        walStorage:
+          name: authentik-db-daily-snapshot-20260727020000-wal
+          kind: VolumeSnapshot
+          apiGroup: snapshot.storage.k8s.io
   storage:
     storageClass: longhorn
     size: 5Gi
