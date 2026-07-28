@@ -77,10 +77,10 @@ spec:
         name: authentik-db-app
   storage:
     storageClass: longhorn
-    size: 4Gi
+    size: 5Gi
   walStorage:
     storageClass: longhorn
-    size: 4Gi
+    size: 10Gi
   backup:
     target: prefer-standby
     volumeSnapshot:
