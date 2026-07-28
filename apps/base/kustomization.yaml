@@ -6,3 +6,5 @@ resources:
   - authentik/authentik.yaml
   - cloudflared/authentik.yaml
   - immich/immich-postgres.yaml
+  - alloy.yaml
+
