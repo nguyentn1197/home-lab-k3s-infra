@@ -19,6 +19,17 @@ metadata:
   namespace: monitoring
 spec:
   interval: 1h
+  install:
+    disableWait: true
+
+  upgrade:
+    disableWait: true
+
+  rollback:
+    disableWait: true
+
+  uninstall:
+    disableWait: true
   chart:
     spec:
       chart: alloy
