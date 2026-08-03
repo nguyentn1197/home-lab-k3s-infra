@@ -35,6 +35,9 @@ spec:
       defaultReplicaCount: 2
       defaultDataLocality: best-effort   # schedule a local replica on the same node as the pod
       replicaAutoBalance: best-effort    # rebalance replicas when nodes are added/removed
+      # Storage is contended (Loki/Prometheus/DB replicas overlapping on the same
+      # disks) - give replicas more time before the engine reports I/O as failed.
+      engineReplicaTimeout: 30
       # Reliability
       autoSalvage: true                  # auto-recover faulted volumes
       autoDeletePodWhenVolumeDetachedUnexpectedly: true
