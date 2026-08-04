@@ -90,3 +90,17 @@ spec:
   walStorage:
     storageClass: local-path
     size: 5Gi
+---
+# CNPG instance manager exposes Postgres metrics on :9187/metrics by default,
+# no per-cluster config needed. This just tells Prometheus to scrape it.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: immich-db
+  namespace: postgres-immich
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: immich-db
+  podMetricsEndpoints:
+    - port: metrics

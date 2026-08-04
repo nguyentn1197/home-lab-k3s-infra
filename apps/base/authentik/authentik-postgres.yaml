@@ -124,4 +124,18 @@ spec:
   online: false
   cluster:
     name: authentik-db
+---
+# CNPG instance manager exposes Postgres metrics on :9187/metrics by default,
+# no per-cluster config needed. This just tells Prometheus to scrape it.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: authentik-db
+  namespace: postgres-authentik
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: authentik-db
+  podMetricsEndpoints:
+    - port: metrics
 
