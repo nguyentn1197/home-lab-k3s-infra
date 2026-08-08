@@ -34,6 +34,17 @@ spec:
     crds: CreateReplace
   upgrade:
     crds: CreateReplace
+  # Alertmanager's SMTP username has no file-based config field (unlike the
+  # password — the operator rejects `smtp_auth_username_file`, confirmed via
+  # its reconcile logs), so it can't be mounted as a secret file like the
+  # password is. Instead, inject it straight into the rendered Helm values
+  # from the Infisical-synced `alertmanager-smtp` Secret at release time —
+  # it still never appears in Git.
+  valuesFrom:
+    - kind: Secret
+      name: alertmanager-smtp
+      valuesKey: SMTP_USERNAME
+      targetPath: alertmanager.config.global.smtp_auth_username
   values:
     prometheus:
       prometheusSpec:
@@ -82,10 +93,8 @@ spec:
           # Resend SMTP relay, STARTTLS on 587.
           smtp_smarthost: "smtp.resend.com:587"
           smtp_from: "kube-monitoring@tnndev.com"
-          # Both username and password are read from files mounted out of the
-          # Infisical-synced `alertmanager-smtp` Secret — neither appears in
-          # Git or the HelmRelease values.
-          smtp_auth_username_file: /etc/alertmanager/secrets/alertmanager-smtp/SMTP_USERNAME
+          # smtp_auth_username is injected via valuesFrom above (from the
+          # Infisical-synced `alertmanager-smtp` Secret) — not set here.
           smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/SMTP_PASSWORD
           smtp_require_tls: true
         inhibit_rules:
