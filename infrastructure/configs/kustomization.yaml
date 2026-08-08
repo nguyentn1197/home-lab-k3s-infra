@@ -10,4 +10,5 @@ resources:
   - longhorn-snapshot-class.yaml
   - cnpg-backup-retention.yaml
   - monitoring-httproute.yaml
+  - monitoring-alertmanager-smtp.yaml
   # - monitoring-external-scrape.yaml

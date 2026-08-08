@@ -1,0 +1,39 @@
+---
+# Syncs the Alertmanager SMTP credentials from Infisical into monitoring.
+# Infisical keys at path /monitoring/alertmanager-smtp:
+#   ALERTMANAGER_SMTP_USERNAME, ALERTMANAGER_SMTP_PASSWORD
+# Remapped to: SMTP_USERNAME, SMTP_PASSWORD
+#
+# Consumed by the kube-prometheus-stack HelmRelease
+# (infrastructure/controllers/kube-prometheus-stack.yaml) via
+# alertmanager.alertmanagerSpec.secrets, which mounts this Secret's keys as
+# files under /etc/alertmanager/secrets/alertmanager-smtp/<key>. Alertmanager
+# then reads them with smtp_auth_username_file / smtp_auth_password_file, so
+# neither ever appears in the HelmRelease values or Git.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: alertmanager-smtp
+  namespace: monitoring
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/monitoring/alertmanager-smtp"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: alertmanager-smtp
+      secretNamespace: monitoring
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          SMTP_USERNAME: "{{ .ALERTMANAGER_SMTP_USERNAME.Value }}"
+          SMTP_PASSWORD: "{{ .ALERTMANAGER_SMTP_PASSWORD.Value }}"

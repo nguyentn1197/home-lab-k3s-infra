@@ -68,6 +68,71 @@ spec:
               resources:
                 requests:
                   storage: 2Gi
+        # Mounts the Infisical-synced `alertmanager-smtp` Secret's keys as
+        # files under /etc/alertmanager/secrets/alertmanager-smtp/<key>, for
+        # use with smtp_auth_password_file below. Keeps the password out of
+        # Git/Helm values — see infrastructure/configs/monitoring-alertmanager-smtp.yaml.
+        secrets:
+          - alertmanager-smtp
+      # Alertmanager routing/receivers config. Alerts previously all went to
+      # the "null" receiver (fired but discarded) — now routed to email.
+      config:
+        global:
+          resolve_timeout: 5m
+          # Resend SMTP relay, STARTTLS on 587.
+          smtp_smarthost: "smtp.resend.com:587"
+          smtp_from: "kube-monitoring@tnndev.com"
+          # Both username and password are read from files mounted out of the
+          # Infisical-synced `alertmanager-smtp` Secret — neither appears in
+          # Git or the HelmRelease values.
+          smtp_auth_username_file: /etc/alertmanager/secrets/alertmanager-smtp/SMTP_USERNAME
+          smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/SMTP_PASSWORD
+          smtp_require_tls: true
+        inhibit_rules:
+          - equal:
+              - namespace
+              - alertname
+            source_matchers:
+              - severity = critical
+            target_matchers:
+              - severity =~ warning|info
+          - equal:
+              - namespace
+              - alertname
+            source_matchers:
+              - severity = warning
+            target_matchers:
+              - severity = info
+          - equal:
+              - namespace
+            source_matchers:
+              - alertname = InfoInhibitor
+            target_matchers:
+              - severity = info
+          - target_matchers:
+              - alertname = InfoInhibitor
+        route:
+          group_by: ["namespace"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          receiver: "email"
+          routes:
+            # Watchdog is a synthetic always-firing heartbeat alert used to
+            # confirm the pipeline is alive — routing it to email would send
+            # a message every repeat_interval forever, so it stays silenced.
+            - matchers:
+                - alertname = "Watchdog"
+              receiver: "null"
+        receivers:
+          - name: "null"
+          - name: "email"
+            email_configs:
+              # TODO: replace with the address that should receive alerts.
+              - to: "nguyen.tn.1197@gmail.com"
+                send_resolved: true
+        templates:
+          - /etc/alertmanager/config/*.tmpl
     grafana:
       enabled: true
       fullnameOverride: grafana
