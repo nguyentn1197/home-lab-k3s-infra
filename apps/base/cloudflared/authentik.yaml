@@ -45,9 +45,11 @@ spec:
                 path: /django-admin/.*
                 service: http_status:403
               - hostname: authentik.tnndev.com
-                service: http://authentik-server.authentik.svc.cluster.local:80
+                service: https://authentik-server.authentik.svc.cluster.local:443
                 originRequest:
                   httpHostHeader: authentik.tnndev.com
+                  originServerName: authentik.tnndev.com
+                  noTLSVerify: true
               - service: http_status:404
 ---
 apiVersion: apps/v1
