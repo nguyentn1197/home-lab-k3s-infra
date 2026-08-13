@@ -38,16 +38,16 @@ spec:
             no-autoupdate: true
 
             ingress:
-              - hostname: authentik.tnndev.com
+              - hostname: auth.tnndev.com
                 path: /if/admin/.*
                 service: http_status:403
-              - hostname: authentik.tnndev.com
+              - hostname: auth.tnndev.com
                 path: /django-admin/.*
                 service: http_status:403
-              - hostname: authentik.tnndev.com
+              - hostname: auth.tnndev.com
                 service: http://authentik-server.authentik.svc.cluster.local:80
                 originRequest:
-                  httpHostHeader: authentik.tnndev.com
+                  httpHostHeader: auth.tnndev.com
               - service: http_status:404
 ---
 apiVersion: apps/v1
