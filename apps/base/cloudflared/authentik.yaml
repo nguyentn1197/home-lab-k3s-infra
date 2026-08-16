@@ -66,6 +66,15 @@ spec:
       labels:
         app: cloudflared-authentik
     spec:
+      # ndots:1 makes the resolver try the origin FQDN as-is instead of walking the
+      # search list first. Without this, nodes whose host search domain has a wildcard
+      # DNS record (e.g. worker-3's local.tnndev.com -> Caddy at 10.10.20.204) hijack
+      # authentik-server.authentik.svc.cluster.local (4 dots < default ndots:5) and
+      # the tunnel loops on Caddy's 308 http->https redirect.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       containers:
         - name: cloudflared
           image: cloudflare/cloudflared:latest
