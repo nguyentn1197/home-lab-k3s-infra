@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - hello-word.yaml
   - authentik/authentik-postgres.yaml
+  - authentik/authentik-postgres-dump.yaml
   - authentik/authentik.yaml
   - cloudflared/authentik.yaml
   - immich/immich-postgres.yaml

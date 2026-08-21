@@ -1,0 +1,196 @@
+---
+# Logical (pg_dump) backup for authentik-db, complementing the volumeSnapshot
+# backup in authentik-postgres.yaml. The snapshot is a physical, block-level
+# copy: fast to restore, but only into CNPG, only on this cluster, and it
+# faithfully preserves corruption and bad migrations. This dump is plain SQL on
+# the NAS — restorable into any Postgres 16, and the only thing that helps when
+# the damage predates the newest snapshot.
+#
+# Reuses the CIFS credentials Longhorn already uses for its backup target,
+# remapped to the username/password keys csi-driver-smb expects.
+# Infisical keys at path /longhorn/backup-cred-cifs.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: authentik-db-dumps-smb
+  namespace: postgres-authentik
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: home-lab-k3s
+        envSlug: prod
+        secretsPath: "/longhorn/backup-cred-cifs"
+        recursive: false
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: infisical-operator-system
+  managedKubeSecretReferences:
+    - secretName: authentik-db-dumps-smb
+      secretNamespace: postgres-authentik
+      creationPolicy: Owner
+      template:
+        includeAllSecrets: false
+        data:
+          username: "{{ .LONGHORN_BACKUP_CIFS_USERNAME.Value }}"
+          password: "{{ .LONGHORN_BACKUP_CIFS_PASSWORD.Value }}"
+---
+# Static PV rather than a dynamically provisioned one: dynamic provisioning
+# names the directory pvc-<uuid>, which defeats the point of dumps you can find
+# and grab by hand from the NAS.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: authentik-db-dumps-nas
+spec:
+  capacity:
+    # Ignored for SMB — the share's own free space governs. Required by the API.
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - vers=3.0
+    # soft: fail I/O instead of hanging the pod forever if the NAS goes away,
+    # matching how Longhorn mounts the same server.
+    - soft
+  csi:
+    driver: smb.csi.k8s.io
+    volumeHandle: authentik-db-dumps-nas
+    volumeAttributes:
+      # Prefix path, not the share root: the node mounts only this subtree, so a
+      # pod in this namespace cannot read or write the rest of nas_share —
+      # including Longhorn's backup store. The directory must already exist on
+      # the NAS; mount.cifs cannot create a prefix path and fails the mount with
+      # "No such file or directory" if it is missing.
+      source: //10.10.0.210/nas_share/PG_DUMPS/authentik
+    nodeStageSecretRef:
+      name: authentik-db-dumps-smb
+      namespace: postgres-authentik
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: authentik-db-dumps
+  namespace: postgres-authentik
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: authentik-db-dumps-nas
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: authentik-db-dump
+  namespace: postgres-authentik
+spec:
+  # 01:00, an hour ahead of the 02:00 volumeSnapshot. That snapshot runs with
+  # online: false, which fences an instance while it is taken; keeping the two
+  # apart avoids dumping against an instance that is being fenced.
+  schedule: "0 1 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # Without a TTL, a failed Job lingers forever and kube-state-metrics keeps
+      # KubeJobFailed firing long after the cause is fixed — exactly what the
+      # cnpg-backup-retention jobs from May did until 2026-08-21.
+      ttlSecondsAfterFinished: 259200
+      template:
+        spec:
+          restartPolicy: Never
+          # ndots:1 makes the resolver try the service FQDN as-is instead of
+          # walking the host search list first. Without this, nodes whose search
+          # domain has a wildcard record (worker-3's local.tnndev.com) hijack
+          # authentik-db-rw.postgres-authentik.svc.cluster.local — 4 dots, below
+          # the default ndots:5. Same landmine as cloudflared/authentik.yaml.
+          dnsConfig:
+            options:
+              - name: ndots
+                value: "1"
+          containers:
+            - name: dump
+              # Same image as the cluster, so pg_dump matches the server exactly.
+              image: ghcr.io/cloudnative-pg/postgresql:16.4
+              env:
+                - name: PGHOST
+                  value: authentik-db-rw.postgres-authentik.svc.cluster.local
+                - name: PGDATABASE
+                  value: authentik
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: authentik-db-app
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: authentik-db-app
+                      key: password
+              command:
+                - /bin/bash
+                - -ceu
+                - |
+                  # The mount is already scoped to PG_DUMPS/authentik on the NAS,
+                  # so this is the whole of what the pod can see.
+                  DEST=/nas
+                  KEEP=14
+
+                  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+                  final="${DEST}/authentik-${stamp}.sql.gz"
+                  partial="${DEST}/.authentik-${stamp}.sql.gz.partial"
+
+                  # Dump to a dotfile and rename only on success, so an aborted
+                  # run can never leave something that looks like a good backup.
+                  # PIPESTATUS is checked because the gzip exit code would
+                  # otherwise mask a pg_dump failure.
+                  set -o pipefail
+                  echo "Dumping ${PGDATABASE} from ${PGHOST} -> ${final}"
+                  pg_dump --no-owner --no-privileges --format=plain \
+                    | gzip -9 > "${partial}"
+
+                  # Prove the archive is readable before it counts as a backup.
+                  gzip -t "${partial}"
+                  mv "${partial}" "${final}"
+                  echo "Wrote $(du -h "${final}" | cut -f1) to ${final}"
+
+                  # Count-based retention: keep the newest KEEP dumps. Avoids
+                  # depending on find(1), which the postgres image does not ship.
+                  ls -1t "${DEST}"/authentik-*.sql.gz 2>/dev/null \
+                    | tail -n "+$((KEEP + 1))" \
+                    | while read -r old; do
+                        echo "Pruning $(basename "${old}")"
+                        rm -f "${old}"
+                      done
+
+                  # Sweep partials left behind by earlier crashed runs.
+                  ls -1 "${DEST}"/.authentik-*.sql.gz.partial 2>/dev/null \
+                    | while read -r stale; do
+                        echo "Removing stale partial $(basename "${stale}")"
+                        rm -f "${stale}"
+                      done
+              volumeMounts:
+                - name: dumps
+                  mountPath: /nas
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1"
+                  memory: "1Gi"
+          volumes:
+            - name: dumps
+              persistentVolumeClaim:
+                claimName: authentik-db-dumps
