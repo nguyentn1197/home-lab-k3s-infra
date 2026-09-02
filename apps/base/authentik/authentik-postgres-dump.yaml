@@ -103,6 +103,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
+      # Bounds the Job regardless of *how* it's stuck. backoffLimit only
+      # counts pod attempts that actually exit — it does nothing for a pod
+      # wedged in ContainerCreating (e.g. the NAS mount failing to attach),
+      # which is exactly what let this Job run for 3.5 days straight,
+      # blocking every later run via concurrencyPolicy: Forbid. Once this
+      # deadline passes the Job is force-failed, which also makes it visible
+      # to the KubeJobFailed/AuthentikDbDumpFailed alerts below — a Job stuck
+      # in ContainerCreating never sets kube_job_failed on its own.
+      activeDeadlineSeconds: 900
       # Without a TTL, a failed Job lingers forever and kube-state-metrics keeps
       # KubeJobFailed firing long after the cause is fixed — exactly what the
       # cnpg-backup-retention jobs from May did until 2026-08-21.
@@ -147,6 +156,18 @@ spec:
                   DEST=/nas
                   KEEP=14
 
+                  # nullglob makes an unmatched "${DEST}"/pattern* expand to
+                  # nothing instead of the literal pattern string. Without it,
+                  # every *successful* run still failed the Job: the stale-
+                  # partial sweep below globs to nothing on the common case
+                  # (no crashed run left one behind), passing the literal
+                  # unmatched pattern to `ls`, which exits 2 — and that exit
+                  # code is fatal under `set -o pipefail`, killing the script
+                  # right after the backup had already been written and
+                  # verified. Found 2026-09-02: two real dumps landed on the
+                  # NAS from Job attempts Kubernetes still reported as Failed.
+                  shopt -s nullglob
+
                   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
                   final="${DEST}/authentik-${stamp}.sql.gz"
                   partial="${DEST}/.authentik-${stamp}.sql.gz.partial"
@@ -165,21 +186,26 @@ spec:
                   mv "${partial}" "${final}"
                   echo "Wrote $(du -h "${final}" | cut -f1) to ${final}"
 
-                  # Count-based retention: keep the newest KEEP dumps. Avoids
-                  # depending on find(1), which the postgres image does not ship.
-                  ls -1t "${DEST}"/authentik-*.sql.gz 2>/dev/null \
-                    | tail -n "+$((KEEP + 1))" \
-                    | while read -r old; do
-                        echo "Pruning $(basename "${old}")"
-                        rm -f "${old}"
-                      done
+                  # Count-based retention: keep the newest KEEP dumps. Bash
+                  # sorts glob results lexically, which matches chronological
+                  # order here since the timestamp is fixed-width and
+                  # zero-padded — no need for `ls -t`/`sort`/`find`, none of
+                  # which the postgres image reliably has under pipefail-safe
+                  # semantics for an empty match.
+                  dumps=( "${DEST}"/authentik-*.sql.gz )
+                  if [ "${#dumps[@]}" -gt "${KEEP}" ]; then
+                    for old in "${dumps[@]:0:$(( ${#dumps[@]} - KEEP ))}"; do
+                      echo "Pruning $(basename "${old}")"
+                      rm -f "${old}"
+                    done
+                  fi
 
                   # Sweep partials left behind by earlier crashed runs.
-                  ls -1 "${DEST}"/.authentik-*.sql.gz.partial 2>/dev/null \
-                    | while read -r stale; do
-                        echo "Removing stale partial $(basename "${stale}")"
-                        rm -f "${stale}"
-                      done
+                  partials=( "${DEST}"/.authentik-*.sql.gz.partial )
+                  for stale in "${partials[@]}"; do
+                    echo "Removing stale partial $(basename "${stale}")"
+                    rm -f "${stale}"
+                  done
               volumeMounts:
                 - name: dumps
                   mountPath: /nas
@@ -194,3 +220,51 @@ spec:
             - name: dumps
               persistentVolumeClaim:
                 claimName: authentik-db-dumps
+---
+# Alerts feed the existing kube-prometheus-stack Alertmanager (routed to
+# email by default — infrastructure/controllers/kube-prometheus-stack.yaml).
+# ruleSelectorNilUsesHelmValues: false there means any PrometheusRule in any
+# namespace is picked up automatically; no extra wiring needed here.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: authentik-db-dump
+  namespace: postgres-authentik
+spec:
+  groups:
+    - name: authentik-db-dump
+      rules:
+        # Fires quickly and by name, instead of waiting on the generic
+        # KubeJobFailed rule (also active, 15m `for`, no job-specific
+        # summary). Only reachable now that activeDeadlineSeconds above
+        # guarantees a stuck Job eventually reports as failed at all.
+        - alert: AuthentikDbDumpFailed
+          expr: kube_job_failed{namespace="postgres-authentik", job_name=~"authentik-db-dump-.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: authentik-db-dump Job failed
+            description: >-
+              The authentik pg_dump backup Job {{ $labels.job_name }} failed.
+              Check `kubectl logs -n postgres-authentik -l job-name={{ $labels.job_name }}`
+              — most likely the NAS CIFS mount or a pg_dump/gzip error.
+        # Catches everything the failed-Job alert can't: the CronJob never
+        # firing, being suspended, or every attempt exhausting backoffLimit
+        # without Kubernetes ever marking the Job itself failed. 27h gives
+        # the 01:00 daily schedule a 3h buffer over 24h before paging.
+        # `or vector(0)` makes "never succeeded even once" alert immediately
+        # instead of silently never firing (this metric doesn't exist for a
+        # CronJob until its first-ever successful completion).
+        - alert: AuthentikDbDumpMissing
+          expr: >-
+            (time() - (kube_cronjob_status_last_successful_time{namespace="postgres-authentik", cronjob="authentik-db-dump"} or vector(0))) > 97200
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: authentik-db-dump has not succeeded recently
+            description: >-
+              No successful authentik-db-dump backup in over 27h (schedule is
+              daily at 01:00 UTC). Check the CronJob and its most recent Jobs
+              in the postgres-authentik namespace.
