@@ -98,7 +98,7 @@ spec:
     size: 5Gi
   walStorage:
     storageClass: longhorn
-    size: 10Gi
+    size: 20Gi
   backup:
     target: prefer-standby
     volumeSnapshot:
