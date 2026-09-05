@@ -44,3 +44,18 @@
 #         host: vm-1                 # friendly name shown in dashboards
 #       targets:
 #         - "10.10.0.50:9100"        # <-- replace with the VM IP
+
+# ---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: mikrotik-node-exporter
+  namespace: monitoring
+spec:
+  scrapeInterval: 10s
+  staticConfigs:
+    - labels:
+        job: mikrotik
+        host: home-address               # friendly name shown in dashboards
+      targets:
+        - "10.10.1.203:49090"        # <-- replace with the VM IP
