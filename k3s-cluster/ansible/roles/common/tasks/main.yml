@@ -113,6 +113,9 @@
     - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
     - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
     - { key: "net.ipv4.ip_forward", value: "1" }
+    # K3s, containerd, and system services each use inotify watches. The Ubuntu
+    # default (128 instances per user) is too low for a busy Kubernetes node.
+    - { key: "fs.inotify.max_user_instances", value: "1024" }
 
 # --- Disable swap ---
 # Kubernetes (specifically the kubelet) does NOT work well with swap enabled.
