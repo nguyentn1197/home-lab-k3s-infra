@@ -8,4 +8,5 @@ resources:
   - cloudflared/authentik.yaml
   - immich/immich-postgres.yaml
   - alloy.yaml
+  - monitoring/authentik-liveness-dashboard.yaml
 

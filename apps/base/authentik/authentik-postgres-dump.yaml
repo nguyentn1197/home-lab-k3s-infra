@@ -253,12 +253,14 @@ spec:
         # firing, being suspended, or every attempt exhausting backoffLimit
         # without Kubernetes ever marking the Job itself failed. 27h gives
         # the 01:00 daily schedule a 3h buffer over 24h before paging.
-        # `or vector(0)` makes "never succeeded even once" alert immediately
+        # `or on() vector(0)` makes "never succeeded even once" alert immediately
         # instead of silently never firing (this metric doesn't exist for a
-        # CronJob until its first-ever successful completion).
+        # CronJob until its first-ever successful completion). The empty label
+        # match prevents the fallback from creating a second, always-firing
+        # series when the CronJob metric exists.
         - alert: AuthentikDbDumpMissing
           expr: >-
-            (time() - (kube_cronjob_status_last_successful_time{namespace="postgres-authentik", cronjob="authentik-db-dump"} or vector(0))) > 97200
+            (time() - (kube_cronjob_status_last_successful_time{namespace="postgres-authentik", cronjob="authentik-db-dump"} or on() vector(0))) > 97200
           for: 5m
           labels:
             severity: warning
