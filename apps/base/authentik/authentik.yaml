@@ -83,7 +83,7 @@ spec:
   chart:
     spec:
       chart: authentik
-      version: "2026.5.x"
+      version: "2026.8.x"
       sourceRef:
         kind: HelmRepository
         name: authentik
@@ -104,6 +104,8 @@ spec:
           value: "5432"
         - name: AUTHENTIK_POSTGRESQL__NAME
           value: authentik
+        - name: AUTHENTIK_WEB__BASE_URL
+          value: https://authentik.tnndev.com
         - name: AUTHENTIK_LOG_LEVEL
           value: info
       envFrom:
