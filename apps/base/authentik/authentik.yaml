@@ -125,7 +125,23 @@ spec:
         from: "authentik homelab <authentik-noreply@tnndev.com>"
     postgresql:
       enabled: false
+    worker:
+      # ndots:1 makes the resolver try the DB FQDN as-is instead of walking the search
+      # list first. Without this, pods scheduled on worker-1 (host search domain
+      # local.tnndev.com) have authentik-db-rw...svc.cluster.local (5 dots, matches
+      # default ndots:5) hijacked by the wildcard *.local.tnndev.com -> Caddy at
+      # 10.10.20.204, so the worker can never reach postgres and crashloops forever.
+      # Same root cause as the cloudflared-authentik fix in commit 12be047.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
     server:
+      # Same ndots:1 fix as worker above, in case this pod ever lands on worker-1.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       route:
         main:
           enabled: true
