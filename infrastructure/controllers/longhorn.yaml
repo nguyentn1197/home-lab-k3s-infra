@@ -38,6 +38,12 @@ spec:
       # Storage is contended (Loki/Prometheus/DB replicas overlapping on the same
       # disks) - give replicas more time before the engine reports I/O as failed.
       engineReplicaTimeout: 30
+      # One rebuild at a time per node. At the default (5), a node returning
+      # from a reboot gets every stale replica rebuilt onto it at once; on the
+      # slower hosts that saturates the disk, rebuilds time out and retry, and
+      # the sync load pushes source engines past engineReplicaTimeout - which
+      # surfaces as EIO on live volumes (took out authentik-db replicas).
+      concurrentReplicaRebuildPerNodeLimit: 1
       # Reliability
       autoSalvage: true                  # auto-recover faulted volumes
       autoDeletePodWhenVolumeDetachedUnexpectedly: true
