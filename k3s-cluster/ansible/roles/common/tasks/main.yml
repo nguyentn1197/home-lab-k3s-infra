@@ -68,6 +68,43 @@
     state: started
     enabled: yes
 
+# --- Blacklist sd* devices from multipathd ---
+# multipathd auto-claims Longhorn's iSCSI-backed block devices (/dev/sdX) into
+# dm-multipath maps, holding them exclusively. When Longhorn's engine then
+# tries to mount the device directly, it fails with "already mounted or mount
+# point busy" even though nothing else has it mounted. Longhorn doesn't use or
+# need multipath, so blacklist all sd* devices from multipathd.
+- name: Check if multipathd is installed
+  command: systemctl list-unit-files multipathd.service
+  register: multipathd_unit
+  changed_when: false
+  failed_when: false
+
+- name: Blacklist sd* devices from multipathd
+  blockinfile:
+    path: /etc/multipath.conf
+    create: yes
+    block: |
+      blacklist {
+          devnode "^sd[a-z]+"
+      }
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - longhorn multipath blacklist"
+  register: multipath_blacklist
+  when: "'multipathd.service' in multipathd_unit.stdout"
+
+- name: Restart multipathd and flush stale maps
+  systemd:
+    name: multipathd
+    state: restarted
+    enabled: yes
+  when: multipath_blacklist.changed | default(false)
+
+- name: Flush stale multipath maps
+  command: multipath -F
+  when: multipath_blacklist.changed | default(false)
+  failed_when: false
+  changed_when: false
+
 # --- Load required kernel modules ---
 # Kubernetes networking and storage need these kernel modules:
 # - overlay: Used by containerd (the container runtime) for its filesystem layers.
@@ -219,6 +256,30 @@
 #    state: enabled
 #    default: deny
 #    direction: incoming
+
+# --- Reserve headroom for the OS/kubelet so a node can never be driven to
+# 0 free memory by its pods ---
+# Without this, kubelet's reported "Allocatable" equals full node capacity, so
+# the scheduler happily packs pods onto a node until the OS itself is starved
+# (this is what took worker-3 down: ~50 pods piled on a 2 CPU/4GB node, most
+# with zero resource requests set, since the scheduler had no reason to spread
+# them). system-reserved/kube-reserved carve out guaranteed headroom, and
+# eviction-hard makes kubelet proactively evict pods before hitting true zero.
+- name: Create /etc/rancher/k3s directory
+  file:
+    path: /etc/rancher/k3s
+    state: directory
+  when: kube_reserved_cpu is defined
+
+- name: Reserve kubelet/system headroom
+  copy:
+    dest: /etc/rancher/k3s/config.yaml
+    content: |
+      kubelet-arg:
+        - "system-reserved=cpu={{ kube_reserved_cpu }},memory={{ kube_reserved_memory }}"
+        - "kube-reserved=cpu={{ kube_reserved_cpu }},memory={{ kube_reserved_memory }}"
+        - "eviction-hard=memory.available<{{ eviction_hard_memory }}"
+  when: kube_reserved_cpu is defined
 
 # --- Reboot to apply kernel changes ---
 - name: Reboot nodes

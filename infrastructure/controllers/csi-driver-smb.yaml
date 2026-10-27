@@ -27,3 +27,6 @@ spec:
         name: csi-driver-smb
         namespace: flux-system
       interval: 12h
+  # NOTE: csi-driver-smb already ships sane per-container resource requests/limits
+  # by default (controller.resources.{csiProvisioner,csiResizer,smb,livenessProbe},
+  # linux.resources.{nodeDriverRegistrar,smb,livenessProbe}) - no override needed.

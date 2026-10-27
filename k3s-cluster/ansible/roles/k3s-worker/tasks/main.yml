@@ -16,14 +16,20 @@
 
 - name: Install K3s agent on workers
   shell: |
-    curl -sfL https://get.k3s.io | K3S_URL=https://{{ k3s_vip }}:6443 K3S_TOKEN={{ k3s_token }} sh -s - agent \
-      --node-label "node-role.kubernetes.io/worker=true"
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} K3S_URL=https://{{ k3s_vip }}:6443 K3S_TOKEN={{ k3s_token }} sh -s - agent
   when: k3s_agent_status.rc != 0
   # EXPLANATION:
   # K3S_URL: Points to the VIP, so the worker connects to whichever master is currently the leader
   # K3S_TOKEN: Authentication token to join the cluster
-  # --node-label: Adds a label to the node. Labels are key-value metadata you can use to
-  #   target specific nodes for scheduling (e.g., "run database only on workers")
+  # INSTALL_K3S_VERSION: pins the agent to the same version as the masters. Without this,
+  # get.k3s.io installs whatever is currently "stable", which can be newer than the control
+  # plane and violate Kubernetes' version-skew policy (kubelet must never be newer than the
+  # API server) — this bit us rebuilding worker-2, which joined on v1.36 against v1.34 masters.
+  # Note: a "node-role.kubernetes.io/worker" --node-label was also dropped here. Kubelet's
+  # --node-labels flag rejects any key in the reserved "kubernetes.io"/"k8s.io" namespace
+  # that isn't on its allow-list, so this flag never actually took effect on any existing
+  # worker (confirmed: none of them carry the label) — newer k3s/kubelet versions make this
+  # a hard failure instead of a silent no-op.
 
 # --- Format and mount the Longhorn data disk ---
 # Remember the extra 100GB disk we added to workers? We need to format it

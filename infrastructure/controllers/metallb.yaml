@@ -33,3 +33,18 @@ spec:
         name: metallb
         namespace: flux-system
       interval: 12h
+  values:
+    controller:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    speaker:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi

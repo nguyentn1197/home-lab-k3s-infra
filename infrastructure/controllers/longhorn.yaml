@@ -59,3 +59,177 @@ spec:
         jobList: '[{"name":"default","isGroup":true}]'
     ingress:
       enabled: false
+  # The Longhorn chart has no values.yaml knob for its own components'
+  # resource requests/limits, which let ~15 of its pods (manager DaemonSet,
+  # CSI sidecars, driver-deployer, UI) run with zero requests cluster-wide -
+  # one contributor to worker-3's resource-starvation incident. Patch them in
+  # post-render instead.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: longhorn-manager
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: longhorn-manager
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: longhorn-manager
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 300Mi
+                          limits:
+                            memory: 500Mi
+          - target:
+              kind: DaemonSet
+              name: longhorn-csi-plugin
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: longhorn-csi-plugin
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: longhorn-csi-plugin
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 64Mi
+                          limits:
+                            memory: 128Mi
+                      - name: node-driver-registrar
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            memory: 32Mi
+                      - name: longhorn-liveness-probe
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            memory: 32Mi
+          - target:
+              kind: Deployment
+              name: csi-attacher
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: csi-attacher
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-attacher
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 32Mi
+                          limits:
+                            memory: 64Mi
+          - target:
+              kind: Deployment
+              name: csi-provisioner
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: csi-provisioner
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-provisioner
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 32Mi
+                          limits:
+                            memory: 64Mi
+          - target:
+              kind: Deployment
+              name: csi-resizer
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: csi-resizer
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-resizer
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 32Mi
+                          limits:
+                            memory: 64Mi
+          - target:
+              kind: Deployment
+              name: csi-snapshotter
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: csi-snapshotter
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-snapshotter
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 32Mi
+                          limits:
+                            memory: 64Mi
+          - target:
+              kind: Deployment
+              name: longhorn-driver-deployer
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: longhorn-driver-deployer
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: longhorn-driver-deployer
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 32Mi
+                          limits:
+                            memory: 64Mi
+          - target:
+              kind: Deployment
+              name: longhorn-ui
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: longhorn-ui
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: longhorn-ui
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 64Mi
+                          limits:
+                            memory: 128Mi

@@ -34,3 +34,9 @@ spec:
       clusterWide: true
     podAnnotations:
       homelab.tnndev.com/restarted-for-volume-snapshot-crds: "2026-05-09"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
