@@ -161,6 +161,20 @@ See `docs/contributing.md` — the short version:
   - `hello.kube.local.tnndev.com` → `hello-world/hello-world`
   - `longhorn.kube.local.tnndev.com` → `longhorn-system/longhorn-frontend`
 
+## Operational Gotchas
+
+Hard-won lessons from real incidents — read before touching DNS, node provisioning, or node sizing:
+
+- Pods resolving external hostnames can get silently hijacked by the LAN's `local.tnndev.com` DNS search domain + wildcard. Fixed cluster-wide via k3s's `--resolv-conf` override; don't touch the wildcard zone itself.
+- `multipathd` auto-claims Longhorn's iSCSI block devices and causes `"already mounted or busy"` mount failures. Blacklisted in the Ansible `common` role.
+- Worker nodes are **not** identically sized (`worker-3` has half the CPU of the other two) — infra controllers now carry explicit resource requests, and every node reserves kubelet/system headroom, after a resource-starvation incident on `worker-3`.
+- A Proxmox VM's default `cpu:` type hides real host CPU features (AVX2/BMI2/SSE4.2) even when the hardware supports them — rebuilt VMs need an explicit `cpu: host` (or similar) set and a full stop/start, not just a reboot.
+- Rebuilding a k3s worker from scratch needs `INSTALL_K3S_VERSION` pinned to the masters' version (get.k3s.io defaults to latest-stable, which can violate version-skew policy), and a stale `<node>.node-password.k3s` Secret + `Node` object from the old VM must be deleted before the new one can join.
+
+Full details, symptoms, and root causes: [`docs/operational-gotchas.md`](docs/operational-gotchas.md).
+
+---
+
 ## Secrets Notes
 
 - The Infisical Secrets Operator is installed from `infrastructure/controllers/infisical.yaml`.
