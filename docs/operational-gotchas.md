@@ -56,6 +56,26 @@ Baked into the Ansible `common` role (`k3s-cluster/ansible/roles/common/tasks/ma
 
 ---
 
+## Longhorn rebuild storm after a node reboot
+
+**Symptom:** shortly after a worker comes back from a reboot (or drain + restart), CNPG replicas elsewhere in the cluster start crash-looping with `could not open file "pg_wal/...": Input/output error` or `chmod .../pgdata: input/output error`, while the primary keeps running. On the node hosting the failing pod, `dmesg` shows `Buffer I/O error on dev sdX`, `Detected aborted journal`, and `Remounting filesystem read-only`. Longhorn still reports the volumes `attached` / `healthy` or `degraded`, so the data is intact — it's the live ext4 mount that's broken.
+
+**Root cause:** while the node was down, every replica it held went stale. When it returns, Longhorn rebuilds all of them onto it in parallel — up to `concurrent-replica-rebuild-per-node-limit` (default **5**) at a time. On the slower hosts (`proxmox1` is laptop-class hardware), that saturates the returning node's disk (IO pressure `full` ~60%+, load ~20 on 4 CPUs): rebuilds time out (`context deadline exceeded`, `FailedRebuilding`) and retry, and the heavy sync load on the *source* replicas pushes their engines past `engineReplicaTimeout`. That surfaces as EIO on the live block device, ext4 aborts its journal and flips read-only, and Postgres can't start. A container restart reuses the same broken mount, so the pod just crash-loops.
+
+Check what's rebuilding and how hard the destination node is hurting:
+```bash
+kubectl -n longhorn-system get events --sort-by=.lastTimestamp | grep -E 'Rebuilding|FailedRebuilding'
+ssh <node> 'cat /proc/loadavg /proc/pressure/io'
+```
+
+**Fix:**
+1. Throttle rebuilds to one per node — now set permanently via `defaultSettings.concurrentReplicaRebuildPerNodeLimit: 1` in `infrastructure/controllers/longhorn.yaml`. (Live, before Flux catches up: `kubectl -n longhorn-system patch settings.longhorn.io concurrent-replica-rebuild-per-node-limit --type merge -p '{"value":"1"}'`.)
+2. Cordon the overloaded node until its rebuilds finish, so nothing new lands on it.
+3. **Delete** (not restart) the crash-looping replica pods. Deleting forces kubelet to unmount the read-only filesystem, and the remount runs fsck. CNPG re-syncs them from the primary. Leave the primary alone.
+4. Uncordon once no rebuilds target the node and its IO pressure is back to normal (`full avg60` well under 15%). A large volume (e.g. the 50 GiB Prometheus PVC) can keep the node busy for a while even at one rebuild at a time — that's expected and safe.
+
+---
+
 ## Per-node resource reservations ("performance gate")
 
 **Incident:** `worker-3` (the smallest node: 2 CPU / 4 GB) was driven to zero free memory and severe CPU/IO pressure after ~50 pods — including the *entire* Flux control plane, MetalLB, and the CNPG operator — piled onto it. Almost none of these had any resource `requests` set, so the scheduler had no signal that the node was actually full and kept stacking more on it.
