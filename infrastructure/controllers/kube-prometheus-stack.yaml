@@ -68,10 +68,50 @@ spec:
         probeSelectorNilUsesHelmValues: false
         ruleSelectorNilUsesHelmValues: false
         scrapeConfigSelectorNilUsesHelmValues: false
+        # Prometheus previously had no request at all while peaking at ~2.7Gi
+        # working set (7d max, 2026-11-22; ~339k head series), so the
+        # scheduler treated it as free and over-packed whichever worker it
+        # landed on. The limit stays well above the peak because an OOMKill
+        # triggers a WAL replay that needs even more memory and can
+        # crash-loop. The apiserver/etcd histograms (~130k series) are kept
+        # on purpose for future control-plane debugging; if memory gets
+        # tight, trimming those via kubeApiServer.serviceMonitor
+        # .metricRelabelings is the biggest lever (note: overriding that list
+        # replaces the chart's default bucket-trim rule).
+        resources:
+          requests:
+            memory: 2Gi
+          limits:
+            memory: 3584Mi
+    prometheusOperator:
+      resources:
+        requests:
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      # config-reloader sidecar injected into Prometheus + Alertmanager pods.
+      prometheusConfigReloader:
+        resources:
+          requests:
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+    kube-state-metrics:
+      resources:
+        requests:
+          memory: 64Mi
+        limits:
+          memory: 128Mi
     alertmanager:
       enabled: true
       alertmanagerSpec:
         replicas: 1
+        # Chart default request is 200Mi; actual peak is ~42Mi.
+        resources:
+          requests:
+            memory: 64Mi
+          limits:
+            memory: 128Mi
         storage:
           volumeClaimTemplate:
             spec:
@@ -153,6 +193,19 @@ spec:
         size: 2Gi
       deploymentStrategy:
         type: Recreate
+      # p95 ~335Mi, 7d max ~534Mi (dashboard-heavy query spikes).
+      resources:
+        requests:
+          memory: 384Mi
+        limits:
+          memory: 768Mi
+      # Applies to both the dashboard and datasource sidecars (~78Mi each).
+      sidecar:
+        resources:
+          requests:
+            memory: 96Mi
+          limits:
+            memory: 160Mi
       additionalDataSources:
         - name: Loki
           type: loki

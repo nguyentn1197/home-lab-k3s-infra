@@ -46,6 +46,13 @@ spec:
       tolerations:
         - operator: Exists
     alloy:
+      # Runs on all 6 nodes incl. 3Gi masters (~2.1Gi allocatable), so keep
+      # the request modest: p95 ~313Mi, 7d max ~397Mi per pod.
+      resources:
+        requests:
+          memory: 320Mi
+        limits:
+          memory: 512Mi
       clustering:
         enabled: true
       configMap:
