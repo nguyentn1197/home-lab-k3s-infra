@@ -45,6 +45,13 @@ spec:
   instances: 3
   imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
   primaryUpdateStrategy: unsupervised
+  # On a rolling update, move the primary to an already-updated replica
+  # (~10s write pause) instead of restarting it in place. In-place restart
+  # waits up to smartShutdownTimeout (180s) for clients to disconnect, which
+  # took authentik down ~3.5 min on 2026-11-22 and made its HelmRelease
+  # time out. Caveat: with switchover, CNPG rejects a single change that
+  # alters both imageName and postgresql parameters; split those commits.
+  primaryUpdateMethod: switchover
   # Typical working set is 80-110Mi (7d peak ~500Mi), so 384Mi requests + 1Gi
   # limit frees request headroom without risking OOM.
   resources:
