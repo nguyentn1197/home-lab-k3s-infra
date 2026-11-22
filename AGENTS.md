@@ -34,7 +34,7 @@ home-lab-k3s-infra/
 │
 ├── infrastructure/
 │   ├── controllers/          # Helm releases for cluster-wide controllers
-│   │   ├── metallb.yaml      # Layer-2 load balancer (IP pool: 10.10.40.0-10.10.40.250)
+│   │   ├── metallb.yaml      # Layer-2 load balancer (IP pool: 10.10.40.1-10.10.40.250)
 │   │   ├── envoy-gateway.yaml # Envoy Gateway controller (LoadBalancer IP: 10.10.40.1)
 │   │   ├── longhorn.yaml     # Distributed block storage
 │   │   └── kustomization.yaml
@@ -85,8 +85,8 @@ Each layer `dependsOn` the previous one. Flux will not deploy a layer until its 
 | Worker nodes | `10.10.30.31`, `.32`, `.33` |
 | GitOps tool | Flux CD v2 |
 | Ingress controller | Envoy Gateway (Gateway API) |
-| Ingress IP | `10.10.40.2` |
-| MetalLB IP pool | `10.10.40.0 – 10.10.40.250` |
+| Ingress IP | `10.10.40.1` (Envoy; `10.10.40.2` is `authentik-db-rw-lb`, `10.10.40.3` is `immich-db-rw-lb`) |
+| MetalLB IP pool | `10.10.40.1 – 10.10.40.250` |
 | Storage | Longhorn (default StorageClass, 2 replicas) |
 | Base domain | `*.kube.local.tnndev.com` |
 | TLS | Terminated upstream (no TLS in-cluster) |
