@@ -137,6 +137,30 @@ spec:
           - name: ndots
             value: "1"
     server:
+      # Two replicas on different nodes so a single worker reboot doesn't take
+      # SSO down (it was out ~4 min on the 2026-11-22 worker-2 reboot). The
+      # server is stateless (sessions live in Postgres). Request sized from the
+      # 7d peak (~741Mi); previously it had no request at all.
+      replicas: 2
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: authentik
+                    app.kubernetes.io/component: server
+      pdb:
+        enabled: true
+        minAvailable: 1
       # Same ndots:1 fix as worker above, in case this pod ever lands on worker-1.
       dnsConfig:
         options:

@@ -45,13 +45,21 @@ spec:
   instances: 3
   imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
   primaryUpdateStrategy: unsupervised
+  # Typical working set is 80-110Mi (7d peak ~500Mi), so 384Mi requests + 1Gi
+  # limit frees request headroom without risking OOM.
   resources:
     requests:
       cpu: "250m"
-      memory: "512Mi"
+      memory: "384Mi"
     limits:
       cpu: "1"
       memory: "1Gi"
+  # One instance per worker. Storage is local-path (pinned to a node), so this
+  # mainly stops a future re-clone from landing next to another instance.
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
 
   managed:
     services:

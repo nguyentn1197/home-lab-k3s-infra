@@ -45,13 +45,21 @@ spec:
   instances: 3
   imageName: ghcr.io/cloudnative-pg/postgresql:16.4
   primaryUpdateStrategy: unsupervised
+  # Typical working set is 50-150Mi (7d peak ~700Mi during recovery), so 384Mi
+  # requests + 1Gi limit frees request headroom without risking OOM.
   resources:
     requests:
       cpu: "250m"
-      memory: "512Mi"
+      memory: "384Mi"
     limits:
       cpu: "1"
       memory: "1Gi"
+  # One instance per worker. With "preferred" (the default) two instances
+  # ended up on worker-3, so one node outage took out 2 of 3 instances.
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
 
   managed:
     services:
